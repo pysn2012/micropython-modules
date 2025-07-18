@@ -1,5 +1,5 @@
 # 定义工作流名称
-name: build mpy with camera
+name: build mpy with camera new
 
 # 触发条件：仅手动触发
 on:
@@ -49,18 +49,18 @@ jobs:
         if: steps.cache_esp_idf.outputs.cache-hit != 'true'
         run: |
           cd ~
-          git clone --depth 1 --branch v5.4.1 https://github.com/espressif/esp-idf.git  
+          git clone --depth 1 --branch v5.4.1 https://github.com/espressif/esp-idf.git   
           git -C esp-idf submodule update --init --recursive --filter=tree:0
           cd esp-idf
           ./install.sh all
           cd components
           # 使用 cnadler86 的 esp32-camera 分支（适配 MicroPython）
-          git clone https://github.com/cnadler86/esp32-camera.git  
+          git clone https://github.com/cnadler86/esp32-camera.git   
           cd ~/esp-idf/
           source ./export.sh
           cd ~
           # 拷贝 esp-adf-libs 中的 esp_new_jpeg 组件
-          git clone https://github.com/espressif/esp-adf-libs.git  
+          git clone https://github.com/espressif/esp-adf-libs.git   
           cp -r ~/esp-adf-libs/esp_new_jpeg ~/esp-idf/components/
 
       # 5. 若缓存未命中，克隆并准备 MicroPython
@@ -72,7 +72,7 @@ jobs:
           cd ~/esp-idf/
           source ./export.sh
           cd ~
-          git clone --depth 1 --branch ${{ env.MPY_RELEASE }} https://github.com/micropython/micropython.git  
+          git clone --depth 1 --branch ${{ env.MPY_RELEASE }} https://github.com/micropython/micropython.git   
           cd micropython
           cd mpy-cross
           make
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
-      matrix:
+      matrix:  # 列出所有要构建的板子/配置
         include:
           - board: ESP32_GENERIC_S3
             variant: ""
@@ -124,7 +124,7 @@ jobs:
       - name: 3.克隆 JPEG 模块
         run: |
           cd ${{ github.workspace }}
-          git clone https://github.com/cnadler86/mp_jpeg.git  
+          git clone https://github.com/cnadler86/mp_jpeg.git   
 
       # 4. 构建固件
       - name: 4.构建 MicroPython 固件
@@ -143,19 +143,19 @@ jobs:
             IDF_CMD="${IDF_CMD} -D MICROPY_BOARD_VARIANT=${{ matrix.variant }}"
           fi
           
-          IDF_CMD="${IDF_CMD} -D USER_C_MODULES=${{ github.workspace }}/src/micropython.cmake -B build-${{ matrix.board }}-${{ matrix.variant }} -D MP_CAMERA_DRIVER_VERSION=${CAM_DRIVER} -D MP_JPEG_DIR=${{ github.workspace }}/mp_jpeg"
+          IDF_CMD="${IDF_CMD} -D USER_C_MODULES=${{ github.workspace }}/src/micropython.cmake -B build-${{ matrix.board }}-${{ matrix.variant }} -D MP_CAMERA_DRIVER_VERSION=${CAM_DRIVER} -D MP_JPEG_DIR=${{ github.workspace }}/mp_jpeg -D FLASH_SIZE=${{ matrix.flash_size }}MB"
           
           if [ -n "${{ matrix.model }}" ]; then
-            echo "FW_NAME=${{ matrix.model }}" >> $GITHUB_ENV
+            echo "FW_NAME=${{ matrix.model }}-${{ matrix.flash_size }}MB" >> $GITHUB_ENV
             IDF_CMD="${IDF_CMD} -D MICROPY_CAMERA_MODEL=${{ matrix.model }}"
           else
-            echo "FW_NAME=${{ matrix.board }}-${{ matrix.variant }}" >> $GITHUB_ENV
+            echo "FW_NAME=${{ matrix.board }}-${{ matrix.variant }}-${{ matrix.flash_size }}MB" >> $GITHUB_ENV
           fi
           
           echo "执行命令: $IDF_CMD build"
           $IDF_CMD build
 
-          # 生成合并固件 & uf2
+          # 生成合并固件
           cd ~/micropython/ports/esp32/build-${{ matrix.board }}-${{ matrix.variant }}
           python ../makeimg.py sdkconfig bootloader/bootloader.bin partition_table/partition-table.bin micropython.bin firmware.bin micropython.uf2
           mkdir -p ~/artifacts
