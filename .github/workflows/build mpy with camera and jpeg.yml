@@ -1,75 +1,77 @@
 name: build mpy with camera (make)
 
+# 触发条件：仅手动触发
 on:
   workflow_dispatch:
 
+# 并发控制：同一分支仅保留最新一次运行
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  ESP_IDF_DIR: ~/esp-idf
-  MICROPYTHON_DIR: ~/micropython
-  ARTIFACTS_DIR: ~/artifacts
+  MICROPYTHON_DIR: ~/micropython  # MicroPython 的目录
+  ESP_IDF_DIR: ~/esp-idf  # ESP-IDF 的目录
+  ARTIFACTS_DIR: ~/artifacts  # 构建产物的目录
+  MPY_VERSION: v1.25.0  # MicroPython 的版本
+  ESP_IDF_VERSION: v5.4.1  # ESP-IDF 的版本
 
 jobs:
+  # 第一步：准备编译环境（ESP-IDF、MicroPython、摄像头驱动）
   setup-environment:
     runs-on: ubuntu-24.04
-    outputs:
-      mpy_release: ${{ steps.vars.outputs.MPY_RELEASE }}
     steps:
-      - name: 获取 MicroPython 最新版本
-        id: vars
-        run: |
-          MPY_RELEASE=$(curl -s https://api.github.com/repos/micropython/micropython/releases/latest | jq -r .tag_name)
-          echo "MPY_RELEASE=$MPY_RELEASE" >> $GITHUB_OUTPUT
-          echo "MPY_RELEASE=$MPY_RELEASE" >> $GITHUB_ENV
-
-      - name: 缓存工具链
-        id: cache
+      # 缓存 ESP-IDF 和 MicroPython
+      - name: Cache ESP-IDF and MicroPython
+        id: cache_esp_idf
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ env.ESP_IDF_DIR }}/
+          path: |  # 缓存路径
+            ${{ env.ESP_IDF_DIR }}
             ~/.espressif/
             ~/.cache/pip/
-            ${{ env.MICROPYTHON_DIR }}/
-          key: mpy-make-${{ env.MPY_RELEASE }}-v5.4.1
-          restore-keys: mpy-make-
+            ${{ env.MICROPYTHON_DIR }}
+          key: mpy-${{ env.MPY_VERSION }}-idf-${{ env.ESP_IDF_VERSION }}  # 缓存键
+          restore-keys: |  # 如果缓存键不匹配，尝试恢复部分缓存
+            mpy-${{ env.MPY_VERSION }}-idf-
+            mpy-
 
-      - name: 安装系统依赖
-        if: steps.cache.outputs.cache-hit != 'true'
+      # 安装依赖（如果未缓存）
+      - name: Install dependencies (if not cached)  
+        if: steps.cache_esp_idf.outputs.cache-hit != 'true'  # 如果缓存未命中
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0 build-essential pkg-config
+          sudo apt-get update  # 更新包列表
+          sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0  # 安装依赖
 
-      - name: 克隆并配置 ESP-IDF
-        if: steps.cache.outputs.cache-hit != 'true'
+      # 克隆指定版本的 MicroPython（如果未缓存）
+      - name: Clone MicroPython specific version (if not cached)
+        if: steps.cache_esp_idf.outputs.cache-hit != 'true'  # 如果缓存未命中
         run: |
-          cd ~
-          git clone --depth 1 --branch v5.4.1 https://github.com/espressif/esp-idf.git
-          git -C esp-idf submodule update --init --recursive --filter=tree:0
-          cd esp-idf
-          ./install.sh all
+          cd ~  # 切换到用户目录
+          git clone --depth 1 --branch ${{ env.MPY_VERSION }} https://github.com/micropython/micropython.git ${{ env.MICROPYTHON_DIR }}  # 克隆 MicroPython
+          cd ${{ env.MICROPYTHON_DIR }}
+          git submodule update --init --depth 1  # 更新子模块
+          cd mpy-cross && make  # 编译 mpy-cross 工具
+
+      # 设置指定版本的 ESP-IDF（如果未缓存）
+      - name: Set up ESP-IDF specific version (if not cached)  
+        if: steps.cache_esp_idf.outputs.cache-hit != 'true'  # 如果缓存未命中
+        run: |
+          cd ~  # 切换到用户目录
+          git clone --depth 1 --branch ${{ env.ESP_IDF_VERSION }} https://github.com/espressif/esp-idf.git ${{ env.ESP_IDF_DIR }}  # 克隆 ESP-IDF
+          git -C ${{ env.ESP_IDF_DIR }} submodule update --init --recursive --filter=tree:0  # 更新子模块
+          cd ${{ env.ESP_IDF_DIR }} && ./install.sh esp32,esp32s3,esp32c3  # 安装 ESP-IDF
           cd components
+          # 使用 cnadler86 的 esp32-camera 分支（适配 MicroPython）
           git clone https://github.com/cnadler86/esp32-camera.git
-          cd ~/esp-idf/
-          source ./export.sh
+          cd ~/esp-idf/          
+          source ./export.sh  # 导入 ESP-IDF 的环境变量
           cd ~
           # 拷贝 esp-adf-libs 中的 esp_new_jpeg 组件
           git clone https://github.com/espressif/esp-adf-libs.git
-          cp -r ~/esp-adf-libs/esp_new_jpeg ~/esp-idf/components/
+          cp -r ~/esp-adf-libs/esp_new_jpeg ~/esp-idf/components/         
 
-      - name: 克隆并准备 MicroPython
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          source ${{ env.ESP_IDF_DIR }}/export.sh
-          
-          cd ~
-          git clone --depth 1 --branch ${{ env.MPY_RELEASE }} https://github.com/micropython/micropython.git
-          cd micropython/mpy-cross && make
-          cd ../ports/esp32 && make submodules
-
+  # 第二步：并行构建各开发板固件
   build:
     needs: setup-environment
     runs-on: ubuntu-24.04
@@ -88,14 +90,19 @@ jobs:
             flash_size: 8
 
     steps:
-      - name: 恢复缓存
-        uses: actions/cache@v4
+      # 2. 恢复缓存
+      - name: 2.恢复 ESP-IDF 与 MicroPython 缓存
+        uses: actions/cache@v4  # 使用 GitHub Actions 的缓存功能
         with:
-          path: |
-            ${{ env.ESP_IDF_DIR }}/
+          path: |  # 缓存路径
+            ${{ env.ESP_IDF_DIR }}
             ~/.espressif/
-            ${{ env.MICROPYTHON_DIR }}/
-          key: mpy-make-${{ needs.setup-environment.outputs.mpy_release }}-v5.4.1
+            ~/.cache/pip/
+            ${{ env.MICROPYTHON_DIR }}
+          key: mpy-${{ env.MPY_VERSION }}-idf-${{ env.ESP_IDF_VERSION }}  # 缓存键
+          restore-keys: |  # 如果缓存键不匹配，尝试恢复部分缓存
+            mpy-${{ env.MPY_VERSION }}-idf-
+            mpy-
 
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -106,8 +113,9 @@ jobs:
 
       - name: 编译固件
         run: |
-          source ${{ env.ESP_IDF_DIR }}/export.sh
-          cd ${{ env.MICROPYTHON_DIR }}/ports/esp32
+          source ~/esp-idf/export.sh
+          
+          cd ~/micropython/ports/esp32
 
           # 构造 USER_C_MODULES
           USER_C_MODULES_LIST="${{ github.workspace }}/src/micropython.cmake;${{ github.workspace }}/mp_jpeg/src/micropython.cmake"
@@ -128,7 +136,7 @@ jobs:
           if [[ -f "$FW_PATH" ]]; then
             cp "$FW_PATH" "${{ env.ARTIFACTS_DIR }}/$OUT_NAME"
           else
-            echo "❌ 固件未找到：$FW_PATH"
+            echo "固件未找到：$FW_PATH"
             exit 1
           fi
 
