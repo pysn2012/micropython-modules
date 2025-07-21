@@ -59,6 +59,8 @@ jobs:
       - name: 克隆并准备 MicroPython
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
+          source ${{ env.ESP_IDF_DIR }}/export.sh
+          
           cd ~
           git clone --depth 1 --branch ${{ env.MPY_RELEASE }} https://github.com/micropython/micropython.git
           cd micropython/mpy-cross && make
