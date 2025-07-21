@@ -1,169 +1,133 @@
-# 定义工作流名称
-name: build mpy with camera new
+name: build mpy with camera (make)
 
-# 触发条件：仅手动触发
 on:
   workflow_dispatch:
 
-# 并发控制：同一分支仅保留最新一次运行
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  ESP_IDF_DIR: ~/esp-idf
+  MICROPYTHON_DIR: ~/micropython
+  ARTIFACTS_DIR: ~/artifacts
+
 jobs:
-  # 第一步：准备编译环境（ESP-IDF、MicroPython、摄像头驱动）
   setup-environment:
     runs-on: ubuntu-24.04
+    outputs:
+      mpy_release: ${{ steps.vars.outputs.MPY_RELEASE }}
     steps:
-      # 1. 获取 MicroPython 最新发布版本号
-      - name: 1.获取 MicroPython 最新版本
+      - name: 获取 MicroPython 最新版本
+        id: vars
         run: |
-          MPY_RELEASE=$(curl --silent "https://api.github.com/repos/micropython/micropython/releases/latest" | jq -r .tag_name)
-          echo "MPY_RELEASE=${MPY_RELEASE}" >> $GITHUB_ENV
+          MPY_RELEASE=$(curl -s https://api.github.com/repos/micropython/micropython/releases/latest | jq -r .tag_name)
+          echo "MPY_RELEASE=$MPY_RELEASE" >> $GITHUB_OUTPUT
+          echo "MPY_RELEASE=$MPY_RELEASE" >> $GITHUB_ENV
 
-      # 2. 缓存 ESP-IDF、MicroPython 及相关依赖
-      - name: 2.缓存 ESP-IDF 与 MicroPython
-        id: cache_esp_idf
+      - name: 缓存工具链
+        id: cache
         uses: actions/cache@v4
         with:
-          lookup-only: true
           path: |
-            ~/esp-idf/
+            ${{ env.ESP_IDF_DIR }}/
             ~/.espressif/
-            !~/.espressif/dist/
             ~/.cache/pip/
-            ~/micropython/
-          key: mpy-${{ env.MPY_RELEASE }}
-          restore-keys: mpy-
+            ${{ env.MICROPYTHON_DIR }}/
+          key: mpy-make-${{ env.MPY_RELEASE }}-v5.4.1
+          restore-keys: mpy-make-
 
-      # 3. 若缓存未命中，安装系统依赖
-      - name: 3.安装系统依赖（未缓存时）
-        if: steps.cache_esp_idf.outputs.cache-hit != 'true'
+      - name: 安装系统依赖
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0 build-essential pkg-config
 
-      # 4. 若缓存未命中，克隆并配置 ESP-IDF
-      - name: 4.设置 ESP-IDF（未缓存时）
-        id: export-idf
-        if: steps.cache_esp_idf.outputs.cache-hit != 'true'
+      - name: 克隆并配置 ESP-IDF
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
           cd ~
-          git clone --depth 1 --branch v5.4.1 https://github.com/espressif/esp-idf.git   
-          git -C esp-idf submodule update --init --recursive --filter=tree:0
+          git clone --depth 1 --branch v5.4.1 https://github.com/espressif/esp-idf.git
           cd esp-idf
           ./install.sh all
+          source export.sh
           cd components
-          # 使用 cnadler86 的 esp32-camera 分支（适配 MicroPython）
-          git clone https://github.com/cnadler86/esp32-camera.git   
-          cd ~/esp-idf/
-          source ./export.sh
-          cd ~
-          # 拷贝 esp-adf-libs 中的 esp_new_jpeg 组件
-          git clone https://github.com/espressif/esp-adf-libs.git   
-          cp -r ~/esp-adf-libs/esp_new_jpeg ~/esp-idf/components/
+          git clone https://github.com/cnadler86/esp32-camera.git
+          git clone https://github.com/espressif/esp-adf-libs.git
+          cp -r esp-adf-libs/esp_new_jpeg ./
 
-      # 5. 若缓存未命中，克隆并准备 MicroPython
-      - name: 5.克隆 MicroPython（未缓存时）
-        id: clone-micropython
-        if: steps.cache_esp_idf.outputs.cache-hit != 'true'
+      - name: 克隆并准备 MicroPython
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          echo "Cloning MicroPython release: $MPY_RELEASE"
-          cd ~/esp-idf/
-          source ./export.sh
           cd ~
-          git clone --depth 1 --branch ${{ env.MPY_RELEASE }} https://github.com/micropython/micropython.git   
-          cd micropython
-          cd mpy-cross
-          make
-          cd ~/micropython/ports/esp32
-          make submodules
-          echo "MicroPython 准备完成"
-          source ~/micropython/tools/ci.sh && echo "IDF_VER=$IDF_VER" >> $GITHUB_ENV
+          git clone --depth 1 --branch ${{ env.MPY_RELEASE }} https://github.com/micropython/micropython.git
+          cd micropython/mpy-cross && make
+          cd ../ports/esp32 && make submodules
 
-  # 第二步：并行构建各开发板固件
   build:
     needs: setup-environment
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
-      matrix:  # 列出所有要构建的板子/配置
+      matrix:
         include:
           - board: ESP32_GENERIC_S3
             variant: ""
             flash_size: 8
-            model: ""
           - board: ESP32_GENERIC_S3
             variant: SPIRAM_OCT
             flash_size: 16
-            model: ""
           - board: ESP32_GENERIC_S3
             variant: SPIRAM_OCT
             flash_size: 8
-            model: XIAO_ESP32S3
 
     steps:
-      # 1. 恢复缓存
-      - name: 1.恢复 ESP-IDF 与 MicroPython 缓存
+      - name: 恢复缓存
         uses: actions/cache@v4
         with:
           path: |
-            ~/esp-idf/
+            ${{ env.ESP_IDF_DIR }}/
             ~/.espressif/
-            !~/.espressif/dist/
-            ~/.cache/pip/
-            ~/micropython/
-          key: mpy-${{ env.MPY_RELEASE }}
-          restore-keys: mpy-
+            ${{ env.MICROPYTHON_DIR }}/
+          key: mpy-make-${{ needs.setup-environment.outputs.mpy_release }}-v5.4.1
 
-      # 2. 检出当前仓库（包含自定义 C 模块与脚本）
-      - name: 2.检出当前仓库
+      - name: 检出仓库
         uses: actions/checkout@v4
 
-      # 3. 克隆 JPEG 模块
-      - name: 3.克隆 JPEG 模块
+      - name: 克隆 JPEG 模块
         run: |
-          cd ${{ github.workspace }}
-          git clone https://github.com/cnadler86/mp_jpeg.git   
+          git clone https://github.com/cnadler86/mp_jpeg.git
 
-      # 4. 构建固件
-      - name: 4.构建 MicroPython 固件
+      - name: 编译固件
         run: |
-          source ~/esp-idf/export.sh
-          
-          cd ~/esp-idf/components/esp32-camera
-          CAM_DRIVER=$(git describe --tags --always --dirty)
-          
-          cd ~/micropython/ports/esp32
-          
-          # 构造 idf.py 命令
-          IDF_CMD="idf.py -D MICROPY_BOARD=${{ matrix.board }}"
-          
-          if [ -n "${{ matrix.variant }}" ]; then
-            IDF_CMD="${IDF_CMD} -D MICROPY_BOARD_VARIANT=${{ matrix.variant }}"
-          fi
-          
-          IDF_CMD="${IDF_CMD} -D FLASH_SIZE=${{ matrix.flash_size }}MB -D USER_C_MODULES=${{ github.workspace }}/src/micropython.cmake -B build-${{ matrix.board }}-${{ matrix.variant }} -D MP_CAMERA_DRIVER_VERSION=${CAM_DRIVER} -D MP_JPEG_DIR=${{ github.workspace }}/mp_jpeg"
-          
-          if [ -n "${{ matrix.model }}" ]; then
-            echo "FW_NAME=${{ matrix.model }}-${{ matrix.flash_size }}MB" >> $GITHUB_ENV
-            IDF_CMD="${IDF_CMD} -D MICROPY_CAMERA_MODEL=${{ matrix.model }}"
+          source ${{ env.ESP_IDF_DIR }}/export.sh
+          cd ${{ env.MICROPYTHON_DIR }}/ports/esp32
+
+          # 构造 USER_C_MODULES
+          USER_C_MODULES_LIST="${{ github.workspace }}/src/micropython.cmake;${{ github.workspace }}/mp_jpeg/src/micropython.cmake"
+
+          make BOARD=${{ matrix.board }} \
+               BOARD_VARIANT=${{ matrix.variant }} \
+               FLASH_SIZE=${{ matrix.flash_size }}MB \
+               USER_C_MODULES=$USER_C_MODULES_LIST \
+               -j$(nproc)
+
+      - name: 重命名并上传固件
+        run: |
+          mkdir -p ${{ env.ARTIFACTS_DIR }}
+          BOARD_NAME="${{ matrix.board }}${{ matrix.variant && format('-{0}', matrix.variant) || '' }}"
+          FW_PATH="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${BOARD_NAME}/firmware.bin"
+          OUT_NAME="${{ matrix.board }}${{ matrix.variant && format('_{0}', matrix.variant) || '' }}_${{ matrix.flash_size }}MB.bin"
+
+          if [[ -f "$FW_PATH" ]]; then
+            cp "$FW_PATH" "${{ env.ARTIFACTS_DIR }}/$OUT_NAME"
           else
-            echo "FW_NAME=${{ matrix.board }}-${{ matrix.variant }}-${{ matrix.flash_size }}MB" >> $GITHUB_ENV
+            echo "❌ 固件未找到：$FW_PATH"
+            exit 1
           fi
-          
-          echo "执行命令: $IDF_CMD build"
-          $IDF_CMD build
 
-          # 生成合并固件
-          cd ~/micropython/ports/esp32/build-${{ matrix.board }}-${{ matrix.variant }}
-          python ../makeimg.py sdkconfig bootloader/bootloader.bin partition_table/partition-table.bin micropython.bin firmware.bin micropython.uf2
-          mkdir -p ~/artifacts
-          mv ~/micropython/ports/esp32/build-${{ matrix.board }}-${{ matrix.variant }}/firmware.bin ~/artifacts/firmware.bin
-
-      # 7. 上传固件
-      - name: 7.上传固件产物
+      - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: mpy_cam-${{ env.MPY_RELEASE }}-${{ env.FW_NAME }}
-          path: ~/artifacts/**
+          name: mpy_cam-${{ needs.setup-environment.outputs.mpy_release }}-${{ matrix.board }}${{ matrix.variant && format('_{0}', matrix.variant) || '' }}_${{ matrix.flash_size }}MB
+          path: ${{ env.ARTIFACTS_DIR }}/*.bin
