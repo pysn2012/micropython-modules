@@ -48,13 +48,17 @@ jobs:
         run: |
           cd ~
           git clone --depth 1 --branch v5.4.1 https://github.com/espressif/esp-idf.git
+          git -C esp-idf submodule update --init --recursive --filter=tree:0
           cd esp-idf
           ./install.sh all
-          source export.sh
           cd components
           git clone https://github.com/cnadler86/esp32-camera.git
+          cd ~/esp-idf/
+          source ./export.sh
+          cd ~
+          # 拷贝 esp-adf-libs 中的 esp_new_jpeg 组件
           git clone https://github.com/espressif/esp-adf-libs.git
-          cp -r esp-adf-libs/esp_new_jpeg ./
+          cp -r ~/esp-adf-libs/esp_new_jpeg ~/esp-idf/components/
 
       - name: 克隆并准备 MicroPython
         if: steps.cache.outputs.cache-hit != 'true'
