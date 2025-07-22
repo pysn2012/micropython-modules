@@ -148,7 +148,7 @@ jobs:
           ls -la "/home/runner/micropython/ports/esp32/build-${BOARD_NAME}"
 
           if [[ -f "$FW_PATH" ]]; then
-            cp "$FW_PATH" "${{ env.ARTIFACTS_DIR }}/$OUT_NAME"
+            cp "$FW_PATH" "$ARTIFACTS_DIR/$OUT_NAME"
           else
             echo "Firmware not found at $FW_PATH"
             exit 1
