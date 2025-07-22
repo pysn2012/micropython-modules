@@ -140,12 +140,12 @@ jobs:
           BOARD_NAME="${{ matrix.board }}"
           [[ -n "${{ matrix.variant }}" ]] && BOARD_NAME+="-${{ matrix.variant }}"
           # 计算固件真正所在路径
-          FW_PATH="/home/runner/micropython/ports/esp32/build-${BOARD_NAME}/firmware.bin"
+          FW_PATH="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${BOARD_NAME}/firmware.bin"
           
           OUT_NAME="${{ matrix.board }}${{ matrix.variant && format('_{0}', matrix.variant) || '' }}_${{ matrix.flash_size }}MB.bin"
 
           echo "编译输出目录内容："
-          ls -la "/home/runner/micropython/ports/esp32/build-${BOARD_NAME}"
+          ls -la ${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${BOARD_NAME}
 
           if [[ -f "$FW_PATH" ]]; then
             cp $FW_PATH ${{ env.ARTIFACTS_DIR }}/$OUT_NAME
