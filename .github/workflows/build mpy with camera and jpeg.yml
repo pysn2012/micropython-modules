@@ -124,7 +124,7 @@ jobs:
           make BOARD=${{ matrix.board }} \
                BOARD_VARIANT=${{ matrix.variant }} \
                FLASH_SIZE=${{ matrix.flash_size }}MB \
-               USER_C_MODULES=$USER_C_MODULES_LIST \
+               USER_C_MODULES="${USER_C_MODULES_LIST}" \
                -j$(nproc)
 
       - name: 重命名并上传固件
