@@ -109,8 +109,8 @@ jobs:
 
       - name: 克隆 JPEG 模块
         run: |
+          cd ${{ github.workspace }} && cd ..
           git clone https://github.com/cnadler86/mp_jpeg.git
-          chmod +x mp_jpeg/src/micropython.cmake  # 添加执行权限
 
       - name: 编译固件
         run: |
@@ -119,7 +119,7 @@ jobs:
           cd ~/micropython/ports/esp32
 
           # 构造 USER_C_MODULES
-          USER_C_MODULES_LIST="${{ github.workspace }}/src/micropython.cmake;${{ github.workspace }}/mp_jpeg/src/micropython.cmake"
+          USER_C_MODULES_LIST="${{ github.workspace }}/src/micropython.cmake;${{ github.workspace }}/../mp_jpeg/src/micropython.cmake"
 
           make BOARD=${{ matrix.board }} \
                BOARD_VARIANT=${{ matrix.variant }} \
