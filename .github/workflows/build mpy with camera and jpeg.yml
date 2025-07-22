@@ -107,37 +107,50 @@ jobs:
       - name: 检出仓库
         uses: actions/checkout@v4
 
+      # 克隆 JPEG 模块
       - name: 克隆 JPEG 模块
         run: |
-          cd ~
+          cd ${{ github.workspace }}
           git clone https://github.com/cnadler86/mp_jpeg.git
 
+      # 生成聚合 user_modules.cmake
+      - name: 生成聚合 user_modules.cmake
+        run: |
+          cat > ${{ github.workspace }}/user_modules.cmake <<'EOF'
+          include("${CMAKE_CURRENT_LIST_DIR}/src/micropython.cmake")
+          include("${CMAKE_CURRENT_LIST_DIR}/mp_jpeg/src/micropython.cmake")
+          EOF
+
+      # 编译固件
       - name: 编译固件
         run: |
           source ~/esp-idf/export.sh
-          
           cd ~/micropython/ports/esp32
-
-          # 构造 USER_C_MODULES
-          USER_C_MODULES_LIST="${{ github.workspace }}/src/micropython.cmake;~/mp_jpeg/src/micropython.cmake"
-
           make BOARD=${{ matrix.board }} \
                BOARD_VARIANT=${{ matrix.variant }} \
                FLASH_SIZE=${{ matrix.flash_size }}MB \
-               USER_C_MODULES="${USER_C_MODULES_LIST}" \
+               USER_C_MODULES="${{ github.workspace }}/user_modules.cmake" \
                -j$(nproc)
 
       - name: 重命名并上传固件
         run: |
           mkdir -p ${{ env.ARTIFACTS_DIR }}
-          BOARD_NAME="${{ matrix.board }}${{ matrix.variant && format('-{0}', matrix.variant) || '' }}"
+         
+          # 拼出构建目录名：board 与可选 variant 用 “-” 连接
+          BOARD_NAME="${{ matrix.board }}"
+          [[ -n "${{ matrix.variant }}" ]] && BOARD_NAME+="-${{ matrix.variant }}"
+          # 计算固件真正所在路径
           FW_PATH="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${BOARD_NAME}/firmware.bin"
+          
           OUT_NAME="${{ matrix.board }}${{ matrix.variant && format('_{0}', matrix.variant) || '' }}_${{ matrix.flash_size }}MB.bin"
+
+          echo "编译输出目录内容："
+          ls -la "${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${BOARD_NAME}"
 
           if [[ -f "$FW_PATH" ]]; then
             cp "$FW_PATH" "${{ env.ARTIFACTS_DIR }}/$OUT_NAME"
           else
-            echo "固件未找到：$FW_PATH"
+            echo "Firmware not found at $FW_PATH"
             exit 1
           fi
 
