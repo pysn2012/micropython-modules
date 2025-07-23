@@ -10,9 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MICROPYTHON_DIR: ~/micropython  # MicroPython 的目录
-  ESP_IDF_DIR: ~/esp-idf  # ESP-IDF 的目录
-  ARTIFACTS_DIR: ~/artifacts  # 构建产物的目录
+  MICROPYTHON_DIR: /home/runner/micropython  # MicroPython 的目录
+  ESP_IDF_DIR: /home/runner/esp-idf  # ESP-IDF 的目录
+  ARTIFACTS_DIR: /home/runner/artifacts  # 构建产物的目录
   MPY_VERSION: v1.25.0  # MicroPython 的版本
   ESP_IDF_VERSION: v5.4.1  # ESP-IDF 的版本
 
