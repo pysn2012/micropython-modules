@@ -102,6 +102,24 @@ jobs:
             mpy-${{ env.MPY_VERSION }}-idf-
             mpy-
 
+      # 3. 保证 ESP-IDF 存在（缓存没命中时现场克隆）
+      - name: 确保 ESP-IDF 存在
+        if: steps.cache_esp_idf.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch ${{ env.ESP_IDF_VERSION }} \
+            https://github.com/espressif/esp-idf.git ${{ env.ESP_IDF_DIR }}
+          git -C ${{ env.ESP_IDF_DIR }} submodule update --init --recursive --filter=tree:0
+          ${{ env.ESP_IDF_DIR }}/install.sh esp32,esp32s3,esp32c3
+
+      - name: 确保 MicroPython 存在
+        if: steps.cache_esp_idf.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch ${{ env.MPY_VERSION }} \
+            https://github.com/micropython/micropython.git ${{ env.MICROPYTHON_DIR }}
+          cd ${{ env.MICROPYTHON_DIR }}
+          git submodule update --init --depth 1
+          cd mpy-cross && make
+
       - name: 检出仓库
         uses: actions/checkout@v4
 
