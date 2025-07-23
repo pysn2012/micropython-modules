@@ -10,9 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MICROPYTHON_DIR: /home/runner/micropython  # MicroPython 的目录
-  ESP_IDF_DIR: /home/runner/esp-idf  # ESP-IDF 的目录
-  ARTIFACTS_DIR: /home/runner/artifacts  # 构建产物的目录
+  MICROPYTHON_DIR: ${{ github.workspace }}/micropython  # MicroPython 的目录
+  ESP_IDF_DIR: ${{ github.workspace }}/esp-idf  # ESP-IDF 的目录
+  ARTIFACTS_DIR: ${{ github.workspace }}/artifacts  # 构建产物的目录
   MPY_VERSION: v1.25.0  # MicroPython 的版本
   ESP_IDF_VERSION: v5.4.1  # ESP-IDF 的版本
 
@@ -47,7 +47,6 @@ jobs:
       - name: Clone MicroPython specific version (if not cached)
         if: steps.cache_esp_idf.outputs.cache-hit != 'true'  # 如果缓存未命中
         run: |
-          cd ~  # 切换到用户目录
           git clone --depth 1 --branch ${{ env.MPY_VERSION }} https://github.com/micropython/micropython.git ${{ env.MICROPYTHON_DIR }}  # 克隆 MicroPython
           cd ${{ env.MICROPYTHON_DIR }}
           git submodule update --init --depth 1  # 更新子模块
@@ -57,19 +56,18 @@ jobs:
       - name: Set up ESP-IDF specific version (if not cached)  
         if: steps.cache_esp_idf.outputs.cache-hit != 'true'  # 如果缓存未命中
         run: |
-          cd ~  # 切换到用户目录
           git clone --depth 1 --branch ${{ env.ESP_IDF_VERSION }} https://github.com/espressif/esp-idf.git ${{ env.ESP_IDF_DIR }}  # 克隆 ESP-IDF
           git -C ${{ env.ESP_IDF_DIR }} submodule update --init --recursive --filter=tree:0  # 更新子模块
           cd ${{ env.ESP_IDF_DIR }} && ./install.sh esp32,esp32s3,esp32c3  # 安装 ESP-IDF
           cd components
           # 使用 cnadler86 的 esp32-camera 分支（适配 MicroPython）
           git clone https://github.com/cnadler86/esp32-camera.git
-          cd ~/esp-idf/          
+          cd ${{ env.ESP_IDF_DIR }}          
           source ./export.sh  # 导入 ESP-IDF 的环境变量
-          cd ~
+          cd ${{ github.workspace }}
           # 拷贝 esp-adf-libs 中的 esp_new_jpeg 组件
           git clone https://github.com/espressif/esp-adf-libs.git
-          cp -r ~/esp-adf-libs/esp_new_jpeg ~/esp-idf/components/         
+          cp -r ${{ github.workspace }}/esp-adf-libs/esp_new_jpeg ${{ env.ESP_IDF_DIR }}/components/         
 
   # 第二步：并行构建各开发板固件
   build:
@@ -110,7 +108,6 @@ jobs:
       # 克隆 JPEG 模块
       - name: 克隆 JPEG 模块
         run: |
-          cd ${{ github.workspace }}
           git clone https://github.com/cnadler86/mp_jpeg.git
 
       # 生成聚合 user_modules.cmake
@@ -124,8 +121,8 @@ jobs:
       # 编译固件
       - name: 编译固件
         run: |
-          source ~/esp-idf/export.sh
-          cd ~/micropython/ports/esp32
+          source ${{ env.ESP_IDF_DIR }}/export.sh
+          cd ${{ env.MICROPYTHON_DIR }}/ports/esp32
           make BOARD=${{ matrix.board }} \
                BOARD_VARIANT=${{ matrix.variant }} \
                FLASH_SIZE=${{ matrix.flash_size }}MB \
@@ -157,5 +154,5 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: mpy_cam-${{ needs.setup-environment.outputs.mpy_release }}-${{ matrix.board }}${{ matrix.variant && format('_{0}', matrix.variant) || '' }}_${{ matrix.flash_size }}MB
+          name: mpy_cam-${{ matrix.board }}${{ matrix.variant && format('_{0}', matrix.variant) || '' }}_${{ matrix.flash_size }}MB
           path: ${{ env.ARTIFACTS_DIR }}/*.bin
