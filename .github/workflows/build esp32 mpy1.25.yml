@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-      # 开发板矩阵，可以添加不同的开发板
+      # 开发板矩阵，暂不支持ESP32-C3
         include:
           - board: ESP32_GENERIC_S3
             variant: SPIRAM_OCT
@@ -32,12 +32,12 @@ jobs:
           - board: ESP32_GENERIC_S3
             variant: SPIRAM_OCT
             flash_size: 4
-          - board: ESP32_GENERIC_C3
+          - board: ESP32_GENERIC_S3
             variant: ""
-            flash_size: 8
+            flash_size: 16
           - board: ESP32_GENERIC
             variant: SPIRAM
-            flash_size: 4
+            flash_size: 16
 
     steps:
       # 1. 检出当前仓库（其实没用）
@@ -82,7 +82,7 @@ jobs:
           git clone --depth 1 --branch ${{ env.ESP_IDF_VERSION }} \
             https://github.com/espressif/esp-idf.git ${{ env.ESP_IDF_DIR }}
           git -C ${{ env.ESP_IDF_DIR }} submodule update --init --recursive --filter=tree:0
-          ${{ env.ESP_IDF_DIR }}/install.sh esp32,esp32s3,esp32c3
+          ${{ env.ESP_IDF_DIR }}/install.sh esp32,esp32s3
 
       # 6. 编译固件
       - name: Build firmware
