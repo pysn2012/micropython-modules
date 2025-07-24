@@ -1,4 +1,4 @@
-name: build esp32 mpy 1.25
+name: build esp32c3 mpy 1.25
 
 # 仅手动触发
 on:
