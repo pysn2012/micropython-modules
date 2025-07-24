@@ -1,4 +1,4 @@
-name: build mpy with camera and jpeg (single job)
+name: build mpy with camera
 
 # 仅手动触发
 on:
@@ -87,18 +87,12 @@ jobs:
           cp -r ${{ github.workspace }}/esp-adf-libs/esp_new_jpeg \
             ${{ env.ESP_IDF_DIR }}/components/esp_new_jpeg
 
-      # 6. 导入 ESP-IDF 环境变量（每次都需要）
-      - name: Export ESP-IDF environment
-        run: |
-          source ${{ env.ESP_IDF_DIR }}/export.sh
-          echo "ESP-IDF ready."
-
-      # 7. 克隆 JPEG 模块
+      # 6. 克隆 JPEG 模块
       - name: Clone JPEG module
         run: |
           git clone https://github.com/cnadler86/mp_jpeg.git ${{ github.workspace }}/mp_jpeg
 
-      # 8. 生成 user_modules.cmake（聚合本仓库与 JPEG 模块）
+      # 7. 生成 user_modules.cmake（聚合本仓库与 JPEG 模块）
       - name: Generate user_modules.cmake
         run: |
           cat > ${{ github.workspace }}/user_modules.cmake <<'EOF'
@@ -106,7 +100,7 @@ jobs:
           include("${CMAKE_CURRENT_LIST_DIR}/mp_jpeg/src/micropython.cmake")
           EOF
 
-      # 9. 编译固件
+      # 8. 编译固件
       - name: Build firmware
         run: |
           source ${{ env.ESP_IDF_DIR }}/export.sh
@@ -117,7 +111,7 @@ jobs:
                USER_C_MODULES="${{ github.workspace }}/user_modules.cmake" \
                -j$(nproc)
 
-      # 10. 重命名并收集固件
+      # 9. 重命名并收集固件
       - name: Rename firmware
         run: |
           mkdir -p ${{ env.ARTIFACTS_DIR }}
@@ -134,7 +128,7 @@ jobs:
             exit 1
           fi
 
-      # 11. 上传构建产物
+      # 10. 上传构建产物
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
