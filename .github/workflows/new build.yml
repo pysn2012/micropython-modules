@@ -44,6 +44,7 @@ jobs:
       - name: Clone MicroPython specific version (if not cached)
         if: steps.cache_esp_idf.outputs.cache-hit != 'true'  # 如果缓存未命中
         run: |
+          cd ${{ github.workspace }}
           git clone --depth 1 --branch ${{ env.MPY_VERSION }} https://github.com/micropython/micropython.git ${{ env.MICROPYTHON_DIR }}  # 克隆 MicroPython
           cd ${{ env.MICROPYTHON_DIR }}
           git submodule update --init --depth 1  # 更新子模块
@@ -53,6 +54,7 @@ jobs:
       - name: Set up ESP-IDF specific version (if not cached)  
         if: steps.cache_esp_idf.outputs.cache-hit != 'true'  # 如果缓存未命中
         run: |
+          cd ${{ github.workspace }}
           git clone --depth 1 --branch ${{ env.ESP_IDF_VERSION }} https://github.com/espressif/esp-idf.git ${{ env.ESP_IDF_DIR }}  # 克隆 ESP-IDF
           git -C ${{ env.ESP_IDF_DIR }} submodule update --init --recursive --filter=tree:0  # 更新子模块
           cd ${{ env.ESP_IDF_DIR }} && ./install.sh esp32,esp32s3,esp32c3  # 安装 ESP-IDF
@@ -119,7 +121,7 @@ jobs:
           ls -la ${{ env.ESP_IDF_DIR }}
           echo "检查 export.sh 是否存在..."
           ls -la ${{ env.ESP_IDF_DIR }}/export.sh || echo "export.sh 不存在！"
-          cd ${{ env.ESP_IDF_DIR }} && ./install.sh esp32,esp32s3,esp32c3  # 安装 ESP-IDF
+          cd ${{ env.ESP_IDF_DIR }}
           source ./export.sh
           cd ${{ env.MICROPYTHON_DIR }}/ports/esp32
           make BOARD=${{ matrix.board }} \
