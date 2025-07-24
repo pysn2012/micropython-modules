@@ -115,7 +115,12 @@ jobs:
       # 编译固件
       - name: 编译固件
         run: |
-          source ${{ env.ESP_IDF_DIR }}/export.sh
+          echo "检查 ESP-IDF 目录是否存在..."
+          ls -la ${{ env.ESP_IDF_DIR }}
+          echo "检查 export.sh 是否存在..."
+          ls -la ${{ env.ESP_IDF_DIR }}/export.sh || echo "export.sh 不存在！"
+          cd ${{ env.ESP_IDF_DIR }} && ./install.sh esp32,esp32s3,esp32c3  # 安装 ESP-IDF
+          source ./export.sh
           cd ${{ env.MICROPYTHON_DIR }}/ports/esp32
           make BOARD=${{ matrix.board }} \
                BOARD_VARIANT=${{ matrix.variant }} \
