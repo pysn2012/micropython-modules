@@ -13,7 +13,9 @@ env:
   MICROPYTHON_DIR: ${{ github.workspace }}/micropython
   ESP_IDF_DIR: ${{ github.workspace }}/esp-idf
   ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
+  # micropython版本，可以修改
   MPY_VERSION: v1.25.0
+  # esp-idf版本，不建议修改
   ESP_IDF_VERSION: v5.4.1
 
 jobs:
@@ -22,6 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+      # 开发板矩阵，可以添加不同的开发板
         include:
           - board: ESP32_GENERIC_S3
             variant: ""
@@ -34,7 +37,7 @@ jobs:
             flash_size: 8
 
     steps:
-      # 1. 检出当前仓库（包含 board 配置、脚本等）
+      # 1. 检出当前仓库
       - name: Checkout repo
         uses: actions/checkout@v4
 
@@ -120,7 +123,6 @@ jobs:
           FW_PATH="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${BOARD_NAME}/firmware.bin"
           OUT_NAME="${{ matrix.board }}${{ matrix.variant && format('_{0}', matrix.variant) || '' }}_${{ matrix.flash_size }}MB.bin"
 
-          ls -la "${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${BOARD_NAME}"
           if [[ -f "$FW_PATH" ]]; then
             cp "$FW_PATH" "${{ env.ARTIFACTS_DIR }}/$OUT_NAME"
           else
