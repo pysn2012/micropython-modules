@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-      # 开发板矩阵，暂不支持ESP32-C3
+      # 开发板矩阵
         include:
           - board: ESP32_GENERIC_S3
             variant: SPIRAM_OCT
