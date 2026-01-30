@@ -113,6 +113,7 @@ void mp_camera_hal_construct(
     int8_t reset_pin,
     int8_t sccb_sda_pin,
     int8_t sccb_scl_pin,
+    int8_t sccb_i2c_port,
     int32_t xclk_freq_hz,
     mp_camera_pixformat_t pixel_format,
     mp_camera_framesize_t frame_size,
@@ -134,9 +135,15 @@ void mp_camera_hal_construct(
         self->camera_config.pin_pwdn = powerdown_pin;
         self->camera_config.pin_reset = reset_pin;
         self->camera_config.pin_xclk = external_clock_pin;
-        self->camera_config.pin_sscb_sda = sccb_sda_pin;
-        self->camera_config.pin_sscb_scl = sccb_scl_pin;
-
+        if (sccb_i2c_port != -1) {
+            self->camera_config.sccb_i2c_port = sccb_i2c_port;
+            self->camera_config.pin_sscb_sda = -1;  // Set sda_pin = -1 to signal esp_camera_init to use SCCB_Use_Port()
+            self->camera_config.pin_sscb_scl = -1;
+        } else {
+            self->camera_config.pin_sscb_sda = sccb_sda_pin;
+            self->camera_config.pin_sscb_scl = sccb_scl_pin;
+            self->camera_config.sccb_i2c_port = sccb_i2c_port;
+        }
         self->camera_config.frame_size = frame_size;        
         self->camera_config.jpeg_quality = jpeg_quality;    //save value in here, but will be corrected (with map) before passing it to the esp32-driver
 
@@ -185,15 +192,8 @@ void mp_camera_hal_reconfigure(mp_camera_obj_t *self, mp_camera_framesize_t fram
     check_init(self);
     ESP_LOGI(TAG, "Reconfiguring camera with frame size: %d, pixel format: %d, grab mode: %d, fb count: %d", (int)frame_size, (int)pixel_format, (int)grab_mode, (int)fb_count);
     
-    sensor_t *sensor = esp_camera_sensor_get();
-    camera_sensor_info_t *sensor_info = esp_camera_sensor_get_info(&sensor->id);
-    if (frame_size > sensor_info->max_size) {
-        mp_warning(NULL, "Frame size will be scaled down to maximal frame size supported by the camera sensor");
-        self->camera_config.frame_size = sensor_info->max_size;
-    } else {
-        self->camera_config.frame_size = frame_size;
-    }
-
+    // Set frame_size before deinit to ensure it's properly stored in camera_config and the sensor
+    mp_camera_hal_set_frame_size(self, frame_size);
     set_check_pixel_format(self, pixel_format);
     set_check_grab_mode(self, grab_mode);
     set_check_fb_count(self, fb_count);
@@ -350,6 +350,13 @@ void mp_camera_hal_set_frame_size(mp_camera_obj_t * self, framesize_t value) {
     sensor_t *sensor = esp_camera_sensor_get();
     if (!sensor->set_framesize) {
         mp_raise_ValueError(MP_ERROR_TEXT("No attribute frame_size"));
+    }
+
+    // Validate against sensor's maximum frame size
+    camera_sensor_info_t *sensor_info = esp_camera_sensor_get_info(&sensor->id);
+    if (value > sensor_info->max_size) {
+        mp_warning(NULL, "Frame size will be scaled down to maximal frame size supported by the camera sensor");
+        value = sensor_info->max_size;
     }
 
     if (self->captured_buffer) {

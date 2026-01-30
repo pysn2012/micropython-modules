@@ -13,10 +13,10 @@ env:
   MICROPYTHON_DIR: ${{ github.workspace }}/micropython
   ESP_IDF_DIR: ${{ github.workspace }}/esp-idf
   ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
-  # micropython版本，可以修改
-  MPY_VERSION: v1.25.0
-  # esp-idf版本，不建议修改
-  ESP_IDF_VERSION: v5.4.1
+  # micropython版本
+  MPY_VERSION: v1.27.0
+  # esp-idf版本
+  ESP_IDF_VERSION: v5.5.1
 
 jobs:
   build:

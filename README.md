@@ -13,7 +13,7 @@ If you want to play arround with AI, take a look at the [micropython binding for
 
 ## Content
 
-- [Precompiled firmware (the easy way)](#Precompiled-firmware-the-easy-way)
+- [Precompiled firmware (the easy way)](#precompiled-firmware-the-easy-way)
 - [Using the API](#using-the-api)
   - [Importing the camera module](#importing-the-camera-module)
   - [Creating a camera object](#creating-a-camera-object)
@@ -22,7 +22,8 @@ If you want to play arround with AI, take a look at the [micropython binding for
   - [Camera reconfiguration](#camera-reconfiguration)
   - [Freeing the buffer](#freeing-the-buffer)
   - [Is a frame available](#is-frame-available)
-  - [Additional methods](#additional-methods)
+  - [Additional methods and examples](#additional-methods-and-examples)
+  - [I2C Integration](#i2c-integration)
   - [Additional information](#additional-information)
 - [Build your custom firmware](#build-your-custom-firmware)
   - [Setting up the build environment (DIY method)](#setting-up-the-build-environment-diy-method)
@@ -129,9 +130,13 @@ The following keyword arguments have default values:
 
 ### Initializing the camera
 
+The camera initializes when constructing the camera object per default. If you set init=False during construction, you need to call the init method manually:
+
 ```python
 cam.init()
 ```
+
+Note that most of the camera seeting can only be set or aquired after initialization.
 
 ### Capture image
 
@@ -191,14 +196,14 @@ This gives you the possibility of creating an asynchronous application without u
 Here are just a few examples:
 
 ```python
-cam.set_quality(90)  # The quality goes from 0% to 100%, meaning 100% is the highest but has probably no compression
-camera.get_brightness()
-camera.set_vflip(True) #Enable vertical flip
+cam.quality = 90  # The quality goes from 0% to 100%, meaning 100% is the highest but has probably no compression
+print("cam.brightness =", cam.brightness)
+camera.vflip = True #Enable vertical flip
 ```
 
 See autocompletions in Thonny in order to see the list of methods.
-If you want more insights in the methods and what they actually do, you can find a very good documentation [here](https://docs.circuitpython.org/en/latest/shared-bindings/espcamera/index.html).
-Note that each method requires a "get_" or "set_" prefix, depending on the desired action.
+If you want more insights in the methods and what they actually do, you can find a very good documentation [in circuitpython](https://docs.circuitpython.org/en/latest/shared-bindings/espcamera/index.html).
+Note: "get_" and "set_" prefixed methods are deprecated and will be removed in a future release.
 
 Take also a look in the examples folder.
 
@@ -207,6 +212,42 @@ To get the version of the camera driver used:
 ```python
 import camera
 vers = camera.Version()
+```
+
+### I2C Integration
+
+The camera uses I2C (SCCB protocol) to communicate with the camera sensor. You can share this I2C bus with other devices by passing an external I2C object (SoftI2C not supported) to the camera:
+
+#### Sharing I2C with Camera
+
+```python
+import machine
+
+# Create your own I2C object first
+i2c = machine.I2C(0, scl=22, sda=21, freq=400000)
+
+# Pass it to the camera (no need for sda_pin/scl_pin)
+cam = camera.Camera(i2c=i2c, data_pins=..., pclk_pin=..., ...)
+
+# The same I2C object can be used for other devices on the same bus!
+devices = i2c.scan()
+print(f"I2C devices found: {devices}")
+
+# You can communicate with other I2C devices while camera is running
+i2c.writeto(0x42, b'\x00\x01')  # Write to another device
+
+# Camera sensor communication works too
+cam.saturation = 1  # Uses the shared I2C bus
+```
+
+#### Alternative: Camera Creates Its Own I2C (Default)
+
+```python
+# Camera creates and manages its own I2C internally
+cam = camera.Camera(sda_pin=21, scl_pin=22, ...)
+
+# In this mode, you cannot share I2C with other devices
+# Use the first method if you need to share I2C
 ```
 
 ### Additional information
@@ -221,21 +262,19 @@ To build the project, follow these instructions:
 
 - [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/v5.2.3/esp32/get-started/index.html): I used version 5.2.3, but it might work with other versions (see notes).
 - Clone the micropython repo and this repo in a folder, e.g. "MyESPCam". MicroPython version 1.24 or higher is required (at least commit 92484d8).
-- You will have to add the ESP32-Camera driver from my fork. To do this, add the following to the respective idf_component.yml file (e.g. in micropython/ports/esp32/main_esp32s3/idf_component.yml):
+- You will have to add the ESP32-Camera driver. To do this, add the following to the respective idf_component.yml file (e.g. in micropython/ports/esp32/main/idf_component.yml):
 
 ```yml
   espressif/esp32-camera:
     git: https://github.com/cnadler86/esp32-camera.git
 ```
 
-Alternatively, you can clone the <https://github.com/cnadler86/esp32-camera> repository inside the esp-idf/components folder instead of altering the idf_component.yml file.
-
 ### Add camera configurations to your board (optional, but recommended)
 
 #### Supported camera models
 
 This project supports various boards with camera interface out of the box. You typically only need to add a single line to your board config file ("mpconfigboard.h).
-Example (don't forget to add the empty line at the bottom):
+Example:
 
 ```c
 #define MICROPY_CAMERA_MODEL_WROVER_KIT       1
@@ -252,7 +291,7 @@ Below is a list of supported `MICROPY_CAMERA_MODEL_xxx` definitions:
 - MICROPY_CAMERA_MODEL_M5STACK_WIDE - [M5Stack Wide](https://shop.m5stack.com/collections/m5-cameras)
 - MICROPY_CAMERA_MODEL_M5STACK_ESP32CAM - [M5Stack ESP32CAM](https://shop.m5stack.com/collections/m5-cameras)
 - MICROPY_CAMERA_MODEL_M5STACK_CAMS3_UNIT - [M5Stack CAMS3 Unit](https://shop.m5stack.com/collections/m5-cameras)
-- MICROPY_CAMERA_MODEL_M5STACK_ATOM_S3R - [M5Stack Atom S3R](https://shop.m5stack.com/products/atoms3r-camera-kit-m12-version-ov3660)
+- MICROPY_CAMERA_MODEL_M5STACK_ATOM_S3R - [M5Stack Atom S3R](https://docs.m5stack.com/en/core/AtomS3R-M12)
 - MICROPY_CAMERA_MODEL_AI_THINKER - [AI-Thinker ESP32-CAM]
 - MICROPY_CAMERA_MODEL_XIAO_ESP32S3 - [XIAO ESP32S3](https://www.seeedstudio.com/xiao-series-page)
 - MICROPY_CAMERA_MODEL_ESP32_MP_CAMERA_BOARD - [ESP32 MP Camera Board]
@@ -293,6 +332,7 @@ Example for Xiao sense:
 #define MICROPY_CAMERA_GRAB_MODE    (1)         // 0=WHEN_EMPTY (might have old data, but less resources), 1=LATEST (best, but more resources)
 
 ```
+
 #### Customize additional camera settings
 
 If you want to customize additional camera setting or reduce the firmware size by removing support for unused camera sensors, then take a look at the kconfig file of the esp32-camera driver and specify these on the sdkconfig file of your board.
@@ -303,17 +343,13 @@ If you also want to include the [mp_jpeg module](https://github.com/cnadler86/mp
 
 ### Build the API
 
-To build the project, you could do it the following way:
+To build the project, just use the buils script with the path to your micropython folder:
 
 ```bash
-. <path2esp-idf>/esp-idf/export.sh
-cd MyESPCam/micropython/ports/esp32
-make USER_C_MODULES=../../../../micropython-camera-API/src/micropython.cmake BOARD=<Your-Board> clean
-make USER_C_MODULES=../../../../micropython-camera-API/src/micropython.cmake BOARD=<Your-Board> submodules
-make USER_C_MODULES=../../../../micropython-camera-API/src/micropython.cmake BOARD=<Your-Board> all
+./build.sh -m path/to/micropython -b ESP32_GENERIC_S3
 ```
 
-Micropython and camera-api folders are at the same level. Note that you need those extra "/../"s while been inside the esp32 port folder.
+Use `./build.sh -h` to see all available options.
 If you experience problems, visit [MicroPython external C modules](https://docs.micropython.org/en/latest/develop/cmodules.html).
 
 ## Notes
@@ -350,6 +386,7 @@ Using fb_count=2 theoretically can double the FPS (see JPEG with fb_count=2). Th
 ## Troubleshooting
 
 You can find information on the following sites:
+
 - [ESP-FAQ](https://docs.espressif.com/projects/esp-faq/en/latest/application-solution/camera-application.html)
 - [ChatGPT](https://chatgpt.com/)
 - [Issues in here](https://github.com/cnadler86/micropython-camera-API/issues?q=is%3Aissue)
