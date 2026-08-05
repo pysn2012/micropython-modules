@@ -1,4 +1,4 @@
-name: build mpy with camera
+name: build mpy with camera1.25
 
 # 仅手动触发
 on:
