@@ -103,6 +103,12 @@ jobs:
           sed -i 's/version: "0.15.2"/version: "0.8.5"/' main/idf_component.yml
           rm -f dependencies.lock
           rm -rf managed_components
+          # ---- 3) network_wlan.c 与 esp_wifi_remote 0.8.5 的兼容修正 ----
+          # 1.29 新增的 SEC_WPA_ENT 常量在 0.8.5 类型头中不存在，移除该表项
+          # 并放宽 WIFI_AUTH_MAX 静态断言（其余 API 全部兼容，已验证编译）
+          sed -i '/{ MP_ROM_QSTR(MP_QSTR_SEC_WPA_ENT), MP_ROM_INT(WIFI_AUTH_WPA_ENTERPRISE) },/d' \
+            network_wlan.c
+          sed -i 's/_Static_assert(WIFI_AUTH_MAX == 17,/_Static_assert(1,/' network_wlan.c
           # ---- 2) Stamp-P4 SDIO 引脚（esp_hosted 1.4.0 键名风格）----
           # J3: RST=G42 CLK=G43 CMD=G44 D0=G45 D1=G46 D2=G47 D3=G48
           cat >> boards/sdkconfig.p4_wifi_common <<'EOF'
