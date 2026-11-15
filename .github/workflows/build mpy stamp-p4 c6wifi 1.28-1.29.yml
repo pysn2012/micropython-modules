@@ -142,7 +142,7 @@ jobs:
             boards/ESP32_GENERIC_P4/mpconfigvariant_PRE_REV3_C6_WIFI.cmake
           # modbluetooth.c 的注册宏是 makemoduledefs.py 文本扫描收集的（#if 挡不住），
           # 必须把它从构建源列表移除，否则注册在、定义无 => 链接错误
-          sed -i '\#modbluetooth\.c$#d' extmod/extmod.cmake
+          sed -i '\#modbluetooth\.c$#d' ${{ env.MICROPYTHON_DIR }}/extmod/extmod.cmake
           cat >> boards/sdkconfig.p4_wifi_common <<'EOF'
           CONFIG_BT_ENABLED=n
           EOF
