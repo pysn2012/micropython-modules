@@ -96,27 +96,30 @@ jobs:
       - name: Apply Stamp-P4 SDIO patch
         run: |
           cd ${{ env.MICROPYTHON_DIR }}/ports/esp32/boards
-          # 关闭官方 EV 板引脚预设
-          sed -i 's/^CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=y/CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=n/' \
+          # esp_hosted 2.x 用 choice 选板型预设（上游 sdkconfig 选了 EV 板 FUNC_BOARD）。
+          # choice 成员的 =n 在 defaults 文件里无效，必须改选另一个成员：
+          # 注释掉上游的 FUNC_BOARD 选择，改选 NONE（"No development board"，自由引脚模式）。
+          sed -i 's/^CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=y/# &  (Stamp-P4 uses NONE + explicit pins)/' \
             sdkconfig.p4_wifi_common
           cat >> sdkconfig.p4_wifi_common <<'EOF'
 
-          # ==== Stamp-P4 (M5Stack) SDIO pin adaptation (injected by CI) ====
+          # ==== Stamp-P4 (M5Stack) SDIO pin adaptation (CI injected) ====
           # J3: RST=G42 CLK=G43 CMD=G44 D0=G45 D1=G46 D2=G47 D3=G48
-          CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=n
+          # 板型 choice 选 NONE（无预设 => 引脚 range 0..100 全开）。
+          # 注意：P4 的 SDMMC Slot0 是 IOMUX 固定引脚不可改，必须用 Slot1（GPIO 矩阵）。
+          # 注意：不能选 TAB5 预设——Tab5 走线是 CLK12/CMD13/D0-3=11,10,9,8/RST15，与本板不同。
+          CONFIG_ESP_HOSTED_P4_DEV_BOARD_NONE=y
+          CONFIG_ESP_HOSTED_SDIO_SLOT_1=y
+          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_CLK_SLOT_1=43
+          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_CMD_SLOT_1=44
+          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D0_SLOT_1=45
+          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D1_4BIT_BUS_SLOT_1=46
+          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D2_4BIT_BUS_SLOT_1=47
+          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D3_4BIT_BUS_SLOT_1=48
+          CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=42
+          CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW=y
           CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y
           CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=40000
-          CONFIG_ESP_HOSTED_SDIO_PIN_CLK=43
-          CONFIG_ESP_HOSTED_SDIO_PIN_CMD=44
-          CONFIG_ESP_HOSTED_SDIO_PIN_D0=45
-          CONFIG_ESP_HOSTED_SDIO_PRIV_PIN_D1_4BIT_BUS=46
-          CONFIG_ESP_HOSTED_SDIO_PIN_D1=46
-          CONFIG_ESP_HOSTED_SDIO_PIN_D2=47
-          CONFIG_ESP_HOSTED_SDIO_PIN_D3=48
-          # 复位脚两种键名都写（Kconfig 忽略不存在的键，无害）
-          CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=42
-          CONFIG_ESP_HOSTED_GPIO_SLAVE_RESET_SLAVE=42
-          CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW=y
           EOF
           # v1.28 没有官方 PRE_REV3 变体：为 rev1.3 芯片补 pre-rev3 支持
           if [ "${{ matrix.rev_patch }}" = "true" ]; then
@@ -148,28 +151,27 @@ jobs:
           ls -la "$SDK"
           fail=0
           for kv in \
+            "CONFIG_ESP_HOSTED_P4_DEV_BOARD_NONE=y" \
+            "CONFIG_ESP_HOSTED_SDIO_SLOT=1" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_CLK=43" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_CMD=44" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_D0=45" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_D1=46" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_D2=47" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_D3=48" \
-            "CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=n" \
+            "CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=42" \
             "CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y" ; do
             if ! grep -q "^${kv}$" "$SDK"; then echo "!! 缺失: $kv"; fail=1; fi
           done
-          if ! grep -qE "^CONFIG_ESP_HOSTED_(SDIO_GPIO|GPIO_SLAVE)_RESET_SLAVE=42$" "$SDK"; then
-            echo "!! 缺失: RESET_SLAVE=42"; fail=1
-          fi
           if [[ "${{ matrix.variant }}" == *PRE_REV3* || "${{ matrix.rev_patch }}" == "true" ]]; then
             if ! grep -q "^CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y$" "$SDK"; then
               echo "!! 缺失: SELECTS_REV_LESS_V3 (rev1.3 支持)"; fail=1
             fi
           fi
           if [ $fail -eq 0 ]; then
-            echo "Stamp-P4 引脚与芯片版本配置自检通过 ✔"
+            echo "Stamp-P4 引脚与芯片版本配置自检通过"
           else
-            echo "自检失败：esp_hosted Kconfig 键名可能在 2.7.0 中有变化，请按上面缺失项调整补丁"
+            echo "自检失败：请按上面缺失项调整补丁键名"
             exit 1
           fi
 
