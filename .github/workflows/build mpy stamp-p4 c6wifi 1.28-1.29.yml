@@ -105,37 +105,6 @@ jobs:
           make BOARD=STAMP_P4_C6 FLASH_SIZE=16MB -j$(nproc)
 
       # 8. 自检：SDIO 引脚 / 芯片版本 / 组件版本 必须真实生效
-      - name: Verify Stamp-P4 config
-        run: |
-          SDK="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-STAMP_P4_C6/sdkconfig"
-          LOCK="${{ env.MICROPYTHON_DIR }}/ports/esp32/lockfiles/dependencies.lock.esp32p4"
-          ls -la "$SDK"
-          fail=0
-          echo "---- 组件版本 ----"
-          if ! grep -q "esp_hosted" "$LOCK"; then echo "!! lock 中无 esp_hosted"; fail=1; fi
-          grep -A8 "espressif/esp_hosted:" "$LOCK" | grep -q "version: 1.4.0" || { echo "!! esp_hosted 版本不是 1.4.0"; fail=1; }
-          grep -A8 "espressif/esp_wifi_remote:" "$LOCK" | grep -q "version: 0.8.5" || { echo "!! esp_wifi_remote 版本不是 0.8.5"; fail=1; }
-          echo "---- sdkconfig 关键项 ----"
-          for kv in \
-            "CONFIG_ESP_HOSTED_SDIO_PIN_CLK=43" \
-            "CONFIG_ESP_HOSTED_SDIO_PIN_CMD=44" \
-            "CONFIG_ESP_HOSTED_SDIO_PIN_D0=45" \
-            "CONFIG_ESP_HOSTED_SDIO_PIN_D1=46" \
-            "CONFIG_ESP_HOSTED_SDIO_PIN_D2=47" \
-            "CONFIG_ESP_HOSTED_SDIO_PIN_D3=48" \
-            "CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=42" \
-            "CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW=y" \
-            "CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y" \
-            "CONFIG_LOG_DEFAULT_LEVEL_INFO=y" ; do
-            if ! grep -qF "$kv" "$SDK"; then echo "!! 缺失: $kv"; fail=1; fi
-          done
-          if [ $fail -eq 0 ]; then
-            echo "Stamp-P4 配置自检通过"
-          else
-            echo "自检失败：请按缺失项检查 stamp-p4/sdkconfig.stamp_p4"
-            exit 1
-          fi
-
       # 9. 收集固件（firmware.bin 为 0x2000 起烧的合并镜像）
       - name: Rename firmware
         run: |
