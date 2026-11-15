@@ -31,7 +31,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 2. 缓存 ESP-IDF 与 MicroPython（key 带 -stamp4v2：配置方式变更后强制刷新缓存）
+      # 2. 缓存 ESP-IDF 与 MicroPython（key 带 -stamp4v3：配置方式变更后强制刷新缓存）
       - name: Cache ESP-IDF and MicroPython
         id: cache_all
         uses: actions/cache@v4
@@ -41,7 +41,7 @@ jobs:
             ~/.espressif/
             ~/.cache/pip/
             ${{ env.MICROPYTHON_DIR }}
-          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}-stamp4v2
+          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}-stamp4v3
 
       # 3. 安装系统依赖（仅在缓存未命中时）
       - name: Install system dependencies
@@ -93,6 +93,10 @@ jobs:
             ${{ env.MICROPYTHON_DIR }}/ports/esp32/network_wlan.c
           sed -i 's/_Static_assert(WIFI_AUTH_MAX == 17,/_Static_assert(1,/' \
             ${{ env.MICROPYTHON_DIR }}/ports/esp32/network_wlan.c
+          # 强制清除缓存的构建目录与 sdkconfig（micropython 只在首次生成时应用
+          # sdkconfig.defaults；缓存的旧 sdkconfig 会覆盖板级配置，必须删除重建）
+          rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/build-*
+          rm -f  ${{ env.MICROPYTHON_DIR }}/ports/esp32/sdkconfig*
           echo "---- 组件版本核对 ----"
           grep -E "esp_hosted|esp_wifi_remote" \
             ${{ env.MICROPYTHON_DIR }}/ports/esp32/main/idf_component.yml | grep -E "espressif|version"
