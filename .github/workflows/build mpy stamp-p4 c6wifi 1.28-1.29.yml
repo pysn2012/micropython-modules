@@ -93,48 +93,44 @@ jobs:
       #    上游 sdkconfig.p4_wifi_common 写死了官方 EV 板引脚预设
       #    (CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=y)，改为 Stamp-P4 显式引脚。
       #    micropython build 依据：写在 sdkconfig defaults 链末尾的赋值生效。
-      - name: Apply Stamp-P4 SDIO patch
+      - name: Patch components to Tab5-proven versions + Stamp-P4 SDIO pins
         run: |
-          cd ${{ env.MICROPYTHON_DIR }}/ports/esp32/boards
-          # esp_hosted 2.x 用 choice 选板型预设（上游 sdkconfig 选了 EV 板 FUNC_BOARD）。
-          # choice 成员的 =n 在 defaults 文件里无效，必须改选另一个成员：
-          # 注释掉上游的 FUNC_BOARD 选择，改选 NONE（"No development board"，自由引脚模式）。
-          sed -i 's/^CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=y/# &  (Stamp-P4 uses NONE + explicit pins)/' \
-            sdkconfig.p4_wifi_common
-          cat >> sdkconfig.p4_wifi_common <<'EOF'
+          cd ${{ env.MICROPYTHON_DIR }}/ports/esp32 2>/dev/null || cd ${{ env.MICROPYTHON_DIR }}/ports/esp32
+          # ---- 1) 组件降级：esp_hosted 2.7.0 的 P4 Slot1 SDIO 枚举在 Stamp-P4 上失败
+          #       （EHM-188 同款）；esp_hosted 1.4.0 + esp_wifi_remote 0.8.5 是
+          #       M5Stack Tab5 官方 mpy 的验证组合，且与出厂 C6 从机固件（1.4.x 世代）匹配
+          sed -i 's/version: "2.7.0"/version: "1.4.0"/' main/idf_component.yml
+          sed -i 's/version: "0.15.2"/version: "0.8.5"/' main/idf_component.yml
+          rm -f dependencies.lock
+          rm -rf managed_components
+          # ---- 2) Stamp-P4 SDIO 引脚（esp_hosted 1.4.0 键名风格）----
+          # J3: RST=G42 CLK=G43 CMD=G44 D0=G45 D1=G46 D2=G47 D3=G48
+          cat >> boards/sdkconfig.p4_wifi_common <<'EOF'
 
           # ==== Stamp-P4 (M5Stack) SDIO pin adaptation (CI injected) ====
-          # J3: RST=G42 CLK=G43 CMD=G44 D0=G45 D1=G46 D2=G47 D3=G48
-          # 板型 choice 选 NONE（无预设 => 引脚 range 0..100 全开）。
-          # 注意：P4 的 SDMMC Slot0 是 IOMUX 固定引脚不可改，必须用 Slot1（GPIO 矩阵）。
-          # 注意：不能选 TAB5 预设——Tab5 走线是 CLK12/CMD13/D0-3=11,10,9,8/RST15，与本板不同。
-          CONFIG_ESP_HOSTED_P4_DEV_BOARD_NONE=y
-          CONFIG_ESP_HOSTED_SDIO_SLOT_1=y
-          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_CLK_SLOT_1=43
-          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_CMD_SLOT_1=44
-          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D0_SLOT_1=45
-          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D1_4BIT_BUS_SLOT_1=46
-          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D2_4BIT_BUS_SLOT_1=47
-          CONFIG_ESP_HOSTED_PRIV_SDIO_PIN_D3_4BIT_BUS_SLOT_1=48
-          CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=42
-          CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW=y
+          CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE=y
           CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y
           CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=40000
-          # 诊断辅助：MicroPython 官方把 IDF 日志压到 ERROR 级，这里开到 INFO
-          # 让 esp_hosted 握手过程可见（定位 C6 从机问题后可移除）
-          CONFIG_LOG_DEFAULT_LEVEL_INFO=y
-          EOF
-          # v1.28 没有官方 PRE_REV3 变体：为 rev1.3 芯片补 pre-rev3 支持
-          if [ "${{ matrix.rev_patch }}" = "true" ]; then
-            cat >> sdkconfig.p4_wifi_common <<'EOF'
-
-          # ==== Stamp-P4 rev1.3 chip revision fix (v1.28 has no PRE_REV3 variant) ====
+          CONFIG_ESP_HOSTED_SDIO_PIN_CLK=43
+          CONFIG_ESP_HOSTED_SDIO_PIN_CMD=44
+          CONFIG_ESP_HOSTED_SDIO_PIN_D0=45
+          CONFIG_ESP_HOSTED_SDIO_PRIV_PIN_D1_4BIT_BUS=46
+          CONFIG_ESP_HOSTED_SDIO_PIN_D1=46
+          CONFIG_ESP_HOSTED_SDIO_PIN_D2=47
+          CONFIG_ESP_HOSTED_SDIO_PIN_D3=48
+          CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=42
+          CONFIG_ESP_HOSTED_GPIO_SLAVE_RESET_SLAVE=42
+          CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW=y
+          CONFIG_ESP_HOSTED_RESET_GPIO_ACTIVE_LOW=y
+          # ==== Stamp-P4 芯片为 rev1.3，统一启用 pre-rev3 支持 ====
           CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
           CONFIG_ESP32P4_REV_MIN_0=y
+          # ==== 诊断：IDF 日志开到 INFO（定位后可移除）====
+          CONFIG_LOG_DEFAULT_LEVEL_INFO=y
           EOF
-          fi
-          echo "---- 补丁后的 sdkconfig.p4_wifi_common（尾部）----"
-          tail -30 sdkconfig.p4_wifi_common
+          echo "---- 补丁后确认 ----"
+          grep -E "esp_hosted|esp_wifi_remote" main/idf_component.yml | grep -E "espressif|version"
+          tail -24 boards/sdkconfig.p4_wifi_common
 
       # 7. 编译固件
       - name: Build firmware
@@ -153,28 +149,27 @@ jobs:
           SDK="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${{ matrix.board }}-${{ matrix.variant }}/sdkconfig"
           ls -la "$SDK"
           fail=0
+          echo "---- 组件版本核对 ----"
+          grep -rE "esp_hosted@|esp_wifi_remote@"             ${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock | head -4
           for kv in \
-            "CONFIG_ESP_HOSTED_P4_DEV_BOARD_NONE=y" \
-            "CONFIG_ESP_HOSTED_SDIO_SLOT=1" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_CLK=43" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_CMD=44" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_D0=45" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_D1=46" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_D2=47" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_D3=48" \
-            "CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=42" \
-            "CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y" ; do
+            "CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y" \
+            "CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y" \
+            "CONFIG_LOG_DEFAULT_LEVEL_INFO=y" ; do
             if ! grep -q "^${kv}$" "$SDK"; then echo "!! 缺失: $kv"; fail=1; fi
           done
-          if [[ "${{ matrix.variant }}" == *PRE_REV3* || "${{ matrix.rev_patch }}" == "true" ]]; then
-            if ! grep -q "^CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y$" "$SDK"; then
-              echo "!! 缺失: SELECTS_REV_LESS_V3 (rev1.3 支持)"; fail=1
-            fi
+          if ! grep -qE "^CONFIG_ESP_HOSTED_(SDIO_GPIO|GPIO_SLAVE)_RESET_SLAVE=42$" "$SDK"; then
+            echo "!! 缺失: RESET_SLAVE=42"; fail=1
           fi
           if [ $fail -eq 0 ]; then
-            echo "Stamp-P4 引脚与芯片版本配置自检通过"
+            echo "Stamp-P4 配置自检通过"
           else
-            echo "自检失败：请按上面缺失项调整补丁键名"
+            echo "自检失败：请按缺失项检查补丁/组件版本"
             exit 1
           fi
 
