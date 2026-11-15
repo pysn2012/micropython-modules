@@ -1,0 +1,194 @@
+name: build mpy stamp-p4 c6wifi 1.28-1.29
+
+# 仅手动触发
+on:
+  workflow_dispatch:
+
+# 并发控制：同一分支只保留最新一次
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MICROPYTHON_DIR: ${{ github.workspace }}/micropython
+  ESP_IDF_DIR: ${{ github.workspace }}/esp-idf
+  ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
+  # esp-idf 版本：micropython v1.29 官方 CI 对 esp32 系端口使用 v5.5.2
+  ESP_IDF_VERSION: v5.5.2
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Stamp-P4 (M5Stack, ESP32-P4NRW32 rev v1.3 + AddOn C6 SDIO WiFi)
+        # SDIO 引脚（原理图 J3）：RST=G42 CLK=G43 CMD=G44 D0=G45 D1=G46 D2=G47 D3=G48
+        include:
+          # 主推：v1.29 官方 PRE_REV3 变体，天然支持 rev1.3 芯片
+          - mpy_version: v1.29.0
+            board: ESP32_GENERIC_P4
+            variant: PRE_REV3_C6_WIFI
+            flash_size: 16
+            rev_patch: false
+          # 对照：v1.29 标准 C6_WIFI 变体（rev3.0+ 芯片用）
+          - mpy_version: v1.29.0
+            board: ESP32_GENERIC_P4
+            variant: C6_WIFI
+            flash_size: 16
+            rev_patch: false
+          # 对照：v1.28（无官方 PRE_REV3 变体，补丁强制 pre-rev3 支持）
+          - mpy_version: v1.28.0
+            board: ESP32_GENERIC_P4
+            variant: C6_WIFI
+            flash_size: 16
+            rev_patch: true
+
+    steps:
+      # 1. 检出当前仓库
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      # 2. 缓存 ESP-IDF 与 MicroPython（key 含 mpy 版本，1.29 两个变体共享）
+      - name: Cache ESP-IDF and MicroPython
+        id: cache_all
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ESP_IDF_DIR }}
+            ~/.espressif/
+            ~/.cache/pip/
+            ${{ env.MICROPYTHON_DIR }}
+          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}
+
+      # 3. 安装系统依赖（仅在缓存未命中时）
+      - name: Install system dependencies
+        if: steps.cache_all.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git wget flex bison gperf python3 python3-pip python3-venv \
+            cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+
+      # 4. 克隆 MicroPython（仅在缓存未命中时）
+      - name: Clone MicroPython
+        if: steps.cache_all.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch ${{ matrix.mpy_version }} \
+            https://github.com/micropython/micropython.git ${{ env.MICROPYTHON_DIR }}
+          cd ${{ env.MICROPYTHON_DIR }}
+          git submodule update --init --depth 1
+          make -C mpy-cross
+
+      # 5. 克隆并配置 ESP-IDF（仅在缓存未命中时，目标含 esp32p4）
+      - name: Clone & setup ESP-IDF
+        if: steps.cache_all.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch ${{ env.ESP_IDF_VERSION }} \
+            https://github.com/espressif/esp-idf.git ${{ env.ESP_IDF_DIR }}
+          git -C ${{ env.ESP_IDF_DIR }} submodule update --init --recursive --filter=tree:0
+          ${{ env.ESP_IDF_DIR }}/install.sh esp32p4
+
+      # 6. Stamp-P4 适配补丁：SDIO 引脚覆盖（唯一的功能性差异）
+      #    上游 sdkconfig.p4_wifi_common 写死了官方 EV 板引脚预设
+      #    (CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=y)，改为 Stamp-P4 显式引脚。
+      #    micropython build 依据：写在 sdkconfig defaults 链末尾的赋值生效。
+      - name: Apply Stamp-P4 SDIO patch
+        run: |
+          cd ${{ env.MICROPYTHON_DIR }}/ports/esp32/boards
+          # 关闭官方 EV 板引脚预设
+          sed -i 's/^CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=y/CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=n/' \
+            sdkconfig.p4_wifi_common
+          cat >> sdkconfig.p4_wifi_common <<'EOF'
+
+          # ==== Stamp-P4 (M5Stack) SDIO pin adaptation (injected by CI) ====
+          # J3: RST=G42 CLK=G43 CMD=G44 D0=G45 D1=G46 D2=G47 D3=G48
+          CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=n
+          CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y
+          CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=40000
+          CONFIG_ESP_HOSTED_SDIO_PIN_CLK=43
+          CONFIG_ESP_HOSTED_SDIO_PIN_CMD=44
+          CONFIG_ESP_HOSTED_SDIO_PIN_D0=45
+          CONFIG_ESP_HOSTED_SDIO_PRIV_PIN_D1_4BIT_BUS=46
+          CONFIG_ESP_HOSTED_SDIO_PIN_D1=46
+          CONFIG_ESP_HOSTED_SDIO_PIN_D2=47
+          CONFIG_ESP_HOSTED_SDIO_PIN_D3=48
+          # 复位脚两种键名都写（Kconfig 忽略不存在的键，无害）
+          CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=42
+          CONFIG_ESP_HOSTED_GPIO_SLAVE_RESET_SLAVE=42
+          CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW=y
+          EOF
+          # v1.28 没有官方 PRE_REV3 变体：为 rev1.3 芯片补 pre-rev3 支持
+          if [ "${{ matrix.rev_patch }}" = "true" ]; then
+            cat >> sdkconfig.p4_wifi_common <<'EOF'
+
+          # ==== Stamp-P4 rev1.3 chip revision fix (v1.28 has no PRE_REV3 variant) ====
+          CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+          CONFIG_ESP32P4_REV_MIN_0=y
+          EOF
+          fi
+          echo "---- 补丁后的 sdkconfig.p4_wifi_common（尾部）----"
+          tail -30 sdkconfig.p4_wifi_common
+
+      # 7. 编译固件
+      - name: Build firmware
+        run: |
+          source ${{ env.ESP_IDF_DIR }}/export.sh
+          cd ${{ env.MICROPYTHON_DIR }}/ports/esp32
+          make BOARD=${{ matrix.board }} \
+               BOARD_VARIANT=${{ matrix.variant }} \
+               FLASH_SIZE=${{ matrix.flash_size }}MB \
+               -j$(nproc)
+
+      # 8. 自检：确认 Stamp-P4 引脚/芯片版本配置在最终 sdkconfig 中真实生效
+      #    （esp_hosted Kconfig 键名若在 2.7.0 中变化，这里会立刻失败而不是静默失效）
+      - name: Verify Stamp-P4 config took effect
+        run: |
+          SDK="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${{ matrix.board }}-${{ matrix.variant }}/sdkconfig"
+          ls -la "$SDK"
+          fail=0
+          for kv in \
+            "CONFIG_ESP_HOSTED_SDIO_PIN_CLK=43" \
+            "CONFIG_ESP_HOSTED_SDIO_PIN_CMD=44" \
+            "CONFIG_ESP_HOSTED_SDIO_PIN_D0=45" \
+            "CONFIG_ESP_HOSTED_SDIO_PIN_D1=46" \
+            "CONFIG_ESP_HOSTED_SDIO_PIN_D2=47" \
+            "CONFIG_ESP_HOSTED_SDIO_PIN_D3=48" \
+            "CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=n" \
+            "CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y" ; do
+            if ! grep -q "^${kv}$" "$SDK"; then echo "!! 缺失: $kv"; fail=1; fi
+          done
+          if ! grep -qE "^CONFIG_ESP_HOSTED_(SDIO_GPIO|GPIO_SLAVE)_RESET_SLAVE=42$" "$SDK"; then
+            echo "!! 缺失: RESET_SLAVE=42"; fail=1
+          fi
+          if [[ "${{ matrix.variant }}" == *PRE_REV3* || "${{ matrix.rev_patch }}" == "true" ]]; then
+            if ! grep -q "^CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y$" "$SDK"; then
+              echo "!! 缺失: SELECTS_REV_LESS_V3 (rev1.3 支持)"; fail=1
+            fi
+          fi
+          if [ $fail -eq 0 ]; then
+            echo "Stamp-P4 引脚与芯片版本配置自检通过 ✔"
+          else
+            echo "自检失败：esp_hosted Kconfig 键名可能在 2.7.0 中有变化，请按上面缺失项调整补丁"
+            exit 1
+          fi
+
+      # 9. 收集固件（firmware.bin 为 0x2000 起烧的合并镜像）
+      - name: Rename firmware
+        run: |
+          mkdir -p ${{ env.ARTIFACTS_DIR }}
+          B="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${{ matrix.board }}-${{ matrix.variant }}"
+          MPYV=$(echo "${{ matrix.mpy_version }}" | sed 's/^v//;s/\.0$//')
+          OUT="mpy_${MPYV}_${{ matrix.board }}_${{ matrix.variant }}_${{ matrix.flash_size }}MB"
+          cp "$B/firmware.bin"                "${{ env.ARTIFACTS_DIR }}/${OUT}_firmware.bin"
+          cp "$B/bootloader/bootloader.bin"   "${{ env.ARTIFACTS_DIR }}/${OUT}_bootloader.bin"
+          cp "$B/partition_table/partition-table.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_partition-table.bin"
+          cp "$B/sdkconfig"                   "${{ env.ARTIFACTS_DIR }}/${OUT}_sdkconfig.txt"
+          ls -la ${{ env.ARTIFACTS_DIR }}
+
+      # 10. 上传构建产物
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mpy-stamp-p4-${{ matrix.variant }}-mpy${{ matrix.mpy_version }}
+          path: ${{ env.ARTIFACTS_DIR }}/*
