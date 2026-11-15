@@ -120,6 +120,9 @@ jobs:
           CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW=y
           CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y
           CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=40000
+          # 诊断辅助：MicroPython 官方把 IDF 日志压到 ERROR 级，这里开到 INFO
+          # 让 esp_hosted 握手过程可见（定位 C6 从机问题后可移除）
+          CONFIG_LOG_DEFAULT_LEVEL_INFO=y
           EOF
           # v1.28 没有官方 PRE_REV3 变体：为 rev1.3 芯片补 pre-rev3 支持
           if [ "${{ matrix.rev_patch }}" = "true" ]; then
