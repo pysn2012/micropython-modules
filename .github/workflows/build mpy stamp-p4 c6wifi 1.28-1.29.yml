@@ -22,34 +22,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Stamp-P4 (M5Stack, ESP32-P4NRW32 rev v1.3 + AddOn C6 SDIO WiFi)
-        # SDIO 引脚（原理图 J3）：RST=G42 CLK=G43 CMD=G44 D0=G45 D1=G46 D2=G47 D3=G48
         include:
-          # 主推：v1.29 官方 PRE_REV3 变体，天然支持 rev1.3 芯片
           - mpy_version: v1.29.0
-            board: ESP32_GENERIC_P4
-            variant: PRE_REV3_C6_WIFI
-            flash_size: 16
-            rev_patch: false
-          # 对照：v1.29 标准 C6_WIFI 变体（rev3.0+ 芯片用）
-          - mpy_version: v1.29.0
-            board: ESP32_GENERIC_P4
-            variant: C6_WIFI
-            flash_size: 16
-            rev_patch: false
-          # 对照：v1.28（无官方 PRE_REV3 变体，补丁强制 pre-rev3 支持）
           - mpy_version: v1.28.0
-            board: ESP32_GENERIC_P4
-            variant: C6_WIFI
-            flash_size: 16
-            rev_patch: true
 
     steps:
-      # 1. 检出当前仓库
+      # 1. 检出当前仓库（含 stamp-p4/ 自定义板目录）
       - name: Checkout repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      # 2. 缓存 ESP-IDF 与 MicroPython（key 含 mpy 版本，1.29 两个变体共享）
+      # 2. 缓存 ESP-IDF 与 MicroPython（key 带 -stamp4v2：配置方式变更后强制刷新缓存）
       - name: Cache ESP-IDF and MicroPython
         id: cache_all
         uses: actions/cache@v4
@@ -59,7 +41,7 @@ jobs:
             ~/.espressif/
             ~/.cache/pip/
             ${{ env.MICROPYTHON_DIR }}
-          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}
+          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}-stamp4v2
 
       # 3. 安装系统依赖（仅在缓存未命中时）
       - name: Install system dependencies
@@ -89,86 +71,51 @@ jobs:
           git -C ${{ env.ESP_IDF_DIR }} submodule update --init --recursive --filter=tree:0
           ${{ env.ESP_IDF_DIR }}/install.sh esp32p4
 
-      # 6. Stamp-P4 适配补丁：SDIO 引脚覆盖（唯一的功能性差异）
-      #    上游 sdkconfig.p4_wifi_common 写死了官方 EV 板引脚预设
-      #    (CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=y)，改为 Stamp-P4 显式引脚。
-      #    micropython build 依据：写在 sdkconfig defaults 链末尾的赋值生效。
-      - name: Patch components to Tab5-proven versions + Stamp-P4 SDIO pins
+      # 6. 导入 Stamp-P4 自定义板 + 组件版本对齐
+      #    板级配置全部在 stamp-p4/ 目录（sdkconfig 单文件），无 sed 补丁链
+      - name: Install Stamp-P4 board & align components
         run: |
-          cd ${{ env.MICROPYTHON_DIR }}/ports/esp32 2>/dev/null || cd ${{ env.MICROPYTHON_DIR }}/ports/esp32
-          # ---- 1) 组件降级：esp_hosted 2.7.0 的 P4 Slot1 SDIO 枚举在 Stamp-P4 上失败
-          #       （EHM-188 同款）；esp_hosted 1.4.0 + esp_wifi_remote 0.8.5 是
-          #       M5Stack Tab5 官方 mpy 的验证组合，且与出厂 C6 从机固件（1.4.x 世代）匹配
-          sed -i 's/version: "2.7.0"/version: "1.4.0"/' main/idf_component.yml
-          sed -i 's/version: "0.15.2"/version: "0.8.5"/' main/idf_component.yml
-          rm -f dependencies.lock
-          rm -rf managed_components
-          # ---- 3) network_wlan.c 与 esp_wifi_remote 0.8.5 的兼容修正 ----
-          # 1.29 新增的 SEC_WPA_ENT 常量在 0.8.5 类型头中不存在，移除该表项
-          # 并放宽 WIFI_AUTH_MAX 静态断言（其余 API 全部兼容，已验证编译）
+          # 自定义板目录导入 micropython
+          cp -r ${{ github.workspace }}/stamp-p4 \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/boards/STAMP_P4_C6
+          # 组件版本对齐 Tab5 官方验证组合：
+          #   esp_hosted 1.4.0 + esp_wifi_remote 0.8.5（与出厂 C6 从机固件 1.4.x 世代匹配；
+          #   esp_hosted 2.7.0 的 P4 Slot1 SDIO 枚举在 Stamp-P4 上失败，见 EHM-188）
+          sed -i 's/version: "2.7.0"/version: "1.4.0"/' \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/main/idf_component.yml
+          sed -i 's/version: "0.15.2"/version: "0.8.5"/' \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/main/idf_component.yml
+          rm -f ${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock
+          rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/managed_components
+          # network_wlan.c 与 esp_wifi_remote 0.8.5 类型头兼容：
+          # 1.28/1.29 新增的 SEC_WPA_ENT 常量在 0.8.5 头中不存在，移除表项并放宽断言
           sed -i '/{ MP_ROM_QSTR(MP_QSTR_SEC_WPA_ENT), MP_ROM_INT(WIFI_AUTH_WPA_ENTERPRISE) },/d' \
-            network_wlan.c
-          sed -i 's/_Static_assert(WIFI_AUTH_MAX == 17,/_Static_assert(1,/' network_wlan.c
-          # ---- 2) Stamp-P4 SDIO 引脚（esp_hosted 1.4.0 键名风格）----
-          # J3: RST=G42 CLK=G43 CMD=G44 D0=G45 D1=G46 D2=G47 D3=G48
-          cat >> boards/sdkconfig.p4_wifi_common <<'EOF'
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/network_wlan.c
+          sed -i 's/_Static_assert(WIFI_AUTH_MAX == 17,/_Static_assert(1,/' \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/network_wlan.c
+          echo "---- 组件版本核对 ----"
+          grep -E "esp_hosted|esp_wifi_remote" \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/main/idf_component.yml | grep -E "espressif|version"
 
-          # ==== Stamp-P4 (M5Stack) SDIO pin adaptation (CI injected) ====
-          CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE=y
-          CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y
-          CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=40000
-          CONFIG_ESP_HOSTED_SDIO_PIN_CLK=43
-          CONFIG_ESP_HOSTED_SDIO_PIN_CMD=44
-          CONFIG_ESP_HOSTED_SDIO_PIN_D0=45
-          CONFIG_ESP_HOSTED_SDIO_PRIV_PIN_D1_4BIT_BUS=46
-          CONFIG_ESP_HOSTED_SDIO_PIN_D1=46
-          CONFIG_ESP_HOSTED_SDIO_PIN_D2=47
-          CONFIG_ESP_HOSTED_SDIO_PIN_D3=48
-          CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=42
-          CONFIG_ESP_HOSTED_GPIO_SLAVE_RESET_SLAVE=42
-          CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW=y
-          CONFIG_ESP_HOSTED_RESET_GPIO_ACTIVE_LOW=y
-          # ==== Stamp-P4 芯片为 rev1.3，统一启用 pre-rev3 支持 ====
-          CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
-          CONFIG_ESP32P4_REV_MIN_0=y
-          # ==== 诊断：IDF 日志开到 INFO（定位后可移除）====
-          CONFIG_LOG_DEFAULT_LEVEL_INFO=y
-          EOF
-          # ---- 4) 禁用 BLE：esp_hosted 1.4.0 的 NimBLE HCI 胶水与
-          # micropython 1.28/1.29 的链接不兼容（ble_transport_ll_* 符号缺失）。
-          # 端口 mpconfigport.h 默认 MICROPY_PY_BLUETOOTH=(1)（#ifndef 回填），删除定义无效，必须显式置 0。
-          sed -i 's/MICROPY_PY_BLUETOOTH=1/MICROPY_PY_BLUETOOTH=0/' \
-            boards/ESP32_GENERIC_P4/mpconfigvariant_C6_WIFI.cmake \
-            boards/ESP32_GENERIC_P4/mpconfigvariant_PRE_REV3_C6_WIFI.cmake
-          # modbluetooth.c 的注册宏是 makemoduledefs.py 文本扫描收集的（#if 挡不住），
-          # 必须把它从构建源列表移除，否则注册在、定义无 => 链接错误
-          sed -i '\#modbluetooth\.c$#d' ${{ env.MICROPYTHON_DIR }}/extmod/extmod.cmake
-          cat >> boards/sdkconfig.p4_wifi_common <<'EOF'
-          CONFIG_BT_ENABLED=n
-          EOF
-          echo "---- 补丁后确认 ----"
-          grep -E "esp_hosted|esp_wifi_remote" main/idf_component.yml | grep -E "espressif|version"
-          tail -24 boards/sdkconfig.p4_wifi_common
-
-      # 7. 编译固件
+      # 7. 编译固件（自定义板 STAMP_P4_C6）
       - name: Build firmware
         run: |
           source ${{ env.ESP_IDF_DIR }}/export.sh
           cd ${{ env.MICROPYTHON_DIR }}/ports/esp32
-          make BOARD=${{ matrix.board }} \
-               BOARD_VARIANT=${{ matrix.variant }} \
-               FLASH_SIZE=${{ matrix.flash_size }}MB \
-               -j$(nproc)
+          make BOARD=STAMP_P4_C6 FLASH_SIZE=16MB -j$(nproc)
 
-      # 8. 自检：确认 Stamp-P4 引脚/芯片版本配置在最终 sdkconfig 中真实生效
-      #    （esp_hosted Kconfig 键名若在 2.7.0 中变化，这里会立刻失败而不是静默失效）
-      - name: Verify Stamp-P4 config took effect
+      # 8. 自检：SDIO 引脚 / 芯片版本 / 组件版本 必须真实生效
+      - name: Verify Stamp-P4 config
         run: |
-          SDK="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${{ matrix.board }}-${{ matrix.variant }}/sdkconfig"
+          SDK="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-ESP32_GENERIC_P4-STAMP_P4_C6/sdkconfig"
+          LOCK="${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock"
           ls -la "$SDK"
           fail=0
-          echo "---- 组件版本核对 ----"
-          grep -rE "esp_hosted@|esp_wifi_remote@"             ${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock | head -4
+          echo "---- 组件版本 ----"
+          grep -E "esp_hosted@|esp_wifi_remote@" "$LOCK" || { echo "!! lock 中无组件版本"; fail=1; }
+          grep -q "espressif/esp_hosted@1.4.0" "$LOCK" || { echo "!! esp_hosted 版本不是 1.4.0"; fail=1; }
+          grep -q "espressif/esp_wifi_remote@0.8.5" "$LOCK" || { echo "!! esp_wifi_remote 版本不是 0.8.5"; fail=1; }
+          echo "---- sdkconfig 关键项 ----"
           for kv in \
             "CONFIG_ESP_HOSTED_SDIO_PIN_CLK=43" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_CMD=44" \
@@ -176,19 +123,16 @@ jobs:
             "CONFIG_ESP_HOSTED_SDIO_PIN_D1=46" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_D2=47" \
             "CONFIG_ESP_HOSTED_SDIO_PIN_D3=48" \
-            "CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y" \
+            "CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=42" \
+            "CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_LOW=y" \
             "CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y" \
-            "CONFIG_LOG_DEFAULT_LEVEL_INFO=y" \
-            "CONFIG_BT_ENABLED=n" ; do
-            if ! grep -q "^${kv}$" "$SDK"; then echo "!! 缺失: $kv"; fail=1; fi
+            "CONFIG_LOG_DEFAULT_LEVEL_INFO=y" ; do
+            if ! grep -qF "$kv" "$SDK"; then echo "!! 缺失: $kv"; fail=1; fi
           done
-          if ! grep -qE "^CONFIG_ESP_HOSTED_(SDIO_GPIO|GPIO_SLAVE)_RESET_SLAVE=42$" "$SDK"; then
-            echo "!! 缺失: RESET_SLAVE=42"; fail=1
-          fi
           if [ $fail -eq 0 ]; then
             echo "Stamp-P4 配置自检通过"
           else
-            echo "自检失败：请按缺失项检查补丁/组件版本"
+            echo "自检失败：请按缺失项检查 stamp-p4/sdkconfig.stamp_p4"
             exit 1
           fi
 
@@ -196,18 +140,18 @@ jobs:
       - name: Rename firmware
         run: |
           mkdir -p ${{ env.ARTIFACTS_DIR }}
-          B="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-${{ matrix.board }}-${{ matrix.variant }}"
+          B="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-ESP32_GENERIC_P4-STAMP_P4_C6"
           MPYV=$(echo "${{ matrix.mpy_version }}" | sed 's/^v//;s/\.0$//')
-          OUT="mpy_${MPYV}_${{ matrix.board }}_${{ matrix.variant }}_${{ matrix.flash_size }}MB"
-          cp "$B/firmware.bin"                "${{ env.ARTIFACTS_DIR }}/${OUT}_firmware.bin"
-          cp "$B/bootloader/bootloader.bin"   "${{ env.ARTIFACTS_DIR }}/${OUT}_bootloader.bin"
+          OUT="mpy_${MPYV}_STAMP_P4_C6_16MB"
+          cp "$B/firmware.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_firmware.bin"
+          cp "$B/bootloader/bootloader.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_bootloader.bin"
           cp "$B/partition_table/partition-table.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_partition-table.bin"
-          cp "$B/sdkconfig"                   "${{ env.ARTIFACTS_DIR }}/${OUT}_sdkconfig.txt"
+          cp "$B/sdkconfig" "${{ env.ARTIFACTS_DIR }}/${OUT}_sdkconfig.txt"
           ls -la ${{ env.ARTIFACTS_DIR }}
 
       # 10. 上传构建产物
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
-          name: mpy-stamp-p4-${{ matrix.variant }}-mpy${{ matrix.mpy_version }}
+          name: mpy-stamp-p4-mpy${{ matrix.mpy_version }}
           path: ${{ env.ARTIFACTS_DIR }}/*
