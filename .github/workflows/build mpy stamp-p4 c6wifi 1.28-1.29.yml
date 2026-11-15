@@ -134,6 +134,15 @@ jobs:
           # ==== 诊断：IDF 日志开到 INFO（定位后可移除）====
           CONFIG_LOG_DEFAULT_LEVEL_INFO=y
           EOF
+          # ---- 4) 禁用 BLE：esp_hosted 1.4.0 的 NimBLE HCI 胶水与
+          # micropython 1.28/1.29 的链接不兼容（ble_transport_ll_* 符号缺失）。
+          # 任务只需 WiFi，禁用 BLE 是官方无 WiFi/BLE 变体的标准配置。
+          sed -i '/MICROPY_PY_BLUETOOTH=1/d' \
+            boards/ESP32_GENERIC_P4/mpconfigvariant_C6_WIFI.cmake \
+            boards/ESP32_GENERIC_P4/mpconfigvariant_PRE_REV3_C6_WIFI.cmake
+          cat >> boards/sdkconfig.p4_wifi_common <<'EOF'
+          CONFIG_BT_ENABLED=n
+          EOF
           echo "---- 补丁后确认 ----"
           grep -E "esp_hosted|esp_wifi_remote" main/idf_component.yml | grep -E "espressif|version"
           tail -24 boards/sdkconfig.p4_wifi_common
@@ -166,7 +175,8 @@ jobs:
             "CONFIG_ESP_HOSTED_SDIO_PIN_D3=48" \
             "CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y" \
             "CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y" \
-            "CONFIG_LOG_DEFAULT_LEVEL_INFO=y" ; do
+            "CONFIG_LOG_DEFAULT_LEVEL_INFO=y" \
+            "CONFIG_BT_ENABLED=n" ; do
             if ! grep -q "^${kv}$" "$SDK"; then echo "!! 缺失: $kv"; fail=1; fi
           done
           if ! grep -qE "^CONFIG_ESP_HOSTED_(SDIO_GPIO|GPIO_SLAVE)_RESET_SLAVE=42$" "$SDK"; then
