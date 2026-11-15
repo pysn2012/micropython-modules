@@ -108,13 +108,13 @@ jobs:
       - name: Verify Stamp-P4 config
         run: |
           SDK="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-STAMP_P4_C6/sdkconfig"
-          LOCK="${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock"
+          LOCK="${{ env.MICROPYTHON_DIR }}/ports/esp32/lockfiles/dependencies.lock.esp32p4"
           ls -la "$SDK"
           fail=0
           echo "---- 组件版本 ----"
-          grep -E "esp_hosted@|esp_wifi_remote@" "$LOCK" || { echo "!! lock 中无组件版本"; fail=1; }
-          grep -q "espressif/esp_hosted@1.4.0" "$LOCK" || { echo "!! esp_hosted 版本不是 1.4.0"; fail=1; }
-          grep -q "espressif/esp_wifi_remote@0.8.5" "$LOCK" || { echo "!! esp_wifi_remote 版本不是 0.8.5"; fail=1; }
+          if ! grep -q "esp_hosted" "$LOCK"; then echo "!! lock 中无 esp_hosted"; fail=1; fi
+          grep -A8 "espressif/esp_hosted:" "$LOCK" | grep -q "version: 1.4.0" || { echo "!! esp_hosted 版本不是 1.4.0"; fail=1; }
+          grep -A8 "espressif/esp_wifi_remote:" "$LOCK" | grep -q "version: 0.8.5" || { echo "!! esp_wifi_remote 版本不是 0.8.5"; fail=1; }
           echo "---- sdkconfig 关键项 ----"
           for kv in \
             "CONFIG_ESP_HOSTED_SDIO_PIN_CLK=43" \
