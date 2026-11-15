@@ -136,8 +136,8 @@ jobs:
           EOF
           # ---- 4) 禁用 BLE：esp_hosted 1.4.0 的 NimBLE HCI 胶水与
           # micropython 1.28/1.29 的链接不兼容（ble_transport_ll_* 符号缺失）。
-          # 任务只需 WiFi，禁用 BLE 是官方无 WiFi/BLE 变体的标准配置。
-          sed -i '/MICROPY_PY_BLUETOOTH=1/d' \
+          # 端口 mpconfigport.h 默认 MICROPY_PY_BLUETOOTH=(1)（#ifndef 回填），删除定义无效，必须显式置 0。
+          sed -i 's/MICROPY_PY_BLUETOOTH=1/MICROPY_PY_BLUETOOTH=0/' \
             boards/ESP32_GENERIC_P4/mpconfigvariant_C6_WIFI.cmake \
             boards/ESP32_GENERIC_P4/mpconfigvariant_PRE_REV3_C6_WIFI.cmake
           cat >> boards/sdkconfig.p4_wifi_common <<'EOF'
