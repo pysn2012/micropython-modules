@@ -107,7 +107,7 @@ jobs:
       # 8. 自检：SDIO 引脚 / 芯片版本 / 组件版本 必须真实生效
       - name: Verify Stamp-P4 config
         run: |
-          SDK="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-ESP32_GENERIC_P4-STAMP_P4_C6/sdkconfig"
+          SDK="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-STAMP_P4_C6/sdkconfig"
           LOCK="${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock"
           ls -la "$SDK"
           fail=0
@@ -140,7 +140,7 @@ jobs:
       - name: Rename firmware
         run: |
           mkdir -p ${{ env.ARTIFACTS_DIR }}
-          B="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-ESP32_GENERIC_P4-STAMP_P4_C6"
+          B="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-STAMP_P4_C6"
           MPYV=$(echo "${{ matrix.mpy_version }}" | sed 's/^v//;s/\.0$//')
           OUT="mpy_${MPYV}_STAMP_P4_C6_16MB"
           cp "$B/firmware.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_firmware.bin"
