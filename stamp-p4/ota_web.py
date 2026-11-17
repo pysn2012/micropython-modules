@@ -26,7 +26,8 @@ PORT = 80
 MAX_PAYLOAD = 2800000
 
 _HTML = (
-    b"HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+    # 注意：HTTP 响应头由 _send() 统一生成，这里只放正文，
+    # 否则头部会被浏览器当成正文渲染在页面顶部
     b"<!DOCTYPE html><html><head><meta charset='utf-8'>"
     b"<meta name='viewport' content='width=device-width,initial-scale=1'>"
     b"<title>Stamp-P4 OTA</title><style>"
