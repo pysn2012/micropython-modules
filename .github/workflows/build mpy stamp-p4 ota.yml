@@ -100,7 +100,11 @@ jobs:
           sed -i '/extern uint16_t ble_hs_max_/d' \
             ${{ env.MICROPYTHON_DIR }}/extmod/nimble/modbluetooth_nimble.c
           # ---- OTA 差异项 ----
-          # 1) OTA 乒乓分区表复制进端口目录（Kconfig 的 CUSTOM_FILENAME 相对项目目录解析）
+          # 1) 固件版本号：IDF 从项目目录 version.txt 读取（否则 git describe 失败时为空），
+          #    用 commit 短哈希保证每版固件版本号唯一，便于区分新旧版本
+          printf 'v1.29.0-ota-%s' "${GITHUB_SHA:0:7}" \
+            > ${{ env.MICROPYTHON_DIR }}/ports/esp32/version.txt
+          # 2) OTA 乒乓分区表（Kconfig 的 CUSTOM_FILENAME 相对项目目录解析）
           cp ${{ github.workspace }}/stamp-p4/partitions-16mb-ota.csv \
             ${{ env.MICROPYTHON_DIR }}/ports/esp32/partitions-16mb-ota.csv
           # 2) 板级 sdkconfig 切换分区表（仅改 OTA 工作流副本，不动 stamp-p4/ 原件）
