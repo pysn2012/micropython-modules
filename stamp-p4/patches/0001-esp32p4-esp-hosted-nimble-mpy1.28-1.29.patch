@@ -1,8 +1,23 @@
 diff --git a/extmod/nimble/modbluetooth_nimble.c b/extmod/nimble/modbluetooth_nimble.c
-index 4b8b652..31f568a 100644
+index 4b8b652..9fafec5 100644
 --- a/extmod/nimble/modbluetooth_nimble.c
 +++ b/extmod/nimble/modbluetooth_nimble.c
-@@ -591,8 +591,14 @@ void nimble_reset_gatts_bss(void) {
+@@ -584,15 +584,26 @@ void nimble_reset_gatts_bss(void) {
+     // These variables are defined in ble_hs.c and are only ever incremented
+     // (during service registration) and never reset.
+     // See https://github.com/apache/mynewt-nimble/issues/896
+-    ble_hs_max_attrs = 0;
+-    ble_hs_max_services = 0;
+-    ble_hs_max_client_configs = 0;
++    // Stamp-P4 + esp_hosted (IDF v5.5.4): the ble_hs_max_* symbols are macros
++    // dereferencing ble_hs_state_ctx, which is dynamically allocated and NULL
++    // before nimble_port_init() — guard against NULL (UIFLOW2 patch 0030).
++    if (ble_hs_state_ctx != NULL) {
++        ble_hs_max_attrs = 0;
++        ble_hs_max_services = 0;
++        ble_hs_max_client_configs = 0;
++    }
+ }
  
  int mp_bluetooth_init(void) {
      DEBUG_printf("mp_bluetooth_init\n");
@@ -19,7 +34,7 @@ index 4b8b652..31f568a 100644
  
      nimble_reset_gatts_bss();
  
-@@ -608,7 +614,19 @@ int mp_bluetooth_init(void) {
+@@ -608,7 +619,19 @@ int mp_bluetooth_init(void) {
  
      // Allow port (ESP32) to override NimBLE's HCI init.
      // Otherwise default implementation above calls ble_hci_uart_init().
@@ -39,7 +54,7 @@ index 4b8b652..31f568a 100644
  
      // Static initialization is complete, can start processing events.
      mp_bluetooth_nimble_ble_state = MP_BLUETOOTH_NIMBLE_BLE_STATE_WAITING_FOR_SYNC;
-@@ -616,6 +634,7 @@ int mp_bluetooth_init(void) {
+@@ -616,6 +639,7 @@ int mp_bluetooth_init(void) {
      // Initialise NimBLE memory and data structures.
      DEBUG_printf("mp_bluetooth_init: nimble_port_init\n");
  
@@ -47,7 +62,7 @@ index 4b8b652..31f568a 100644
      // On some ports `nimble_port_init` may return an error code indicating a
      // failed initialisation.
      #if MICROPY_BLUETOOTH_NIMBLE_PORT_INIT_RETURNS_ERROR
-@@ -626,6 +645,7 @@ int mp_bluetooth_init(void) {
+@@ -626,6 +650,7 @@ int mp_bluetooth_init(void) {
      #else
      nimble_port_init();
      #endif
@@ -55,7 +70,7 @@ index 4b8b652..31f568a 100644
  
      ble_hs_cfg.reset_cb = reset_cb;
      ble_hs_cfg.sync_cb = sync_cb;
-@@ -690,10 +710,24 @@ int mp_bluetooth_deinit(void) {
+@@ -690,10 +715,24 @@ int mp_bluetooth_deinit(void) {
          mp_bluetooth_gap_scan_stop();
          #endif
  

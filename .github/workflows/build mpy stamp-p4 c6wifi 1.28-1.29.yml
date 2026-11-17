@@ -144,6 +144,7 @@ jobs:
 
       # 8. 自检：SDIO 引脚 / 芯片版本 / 组件版本 必须真实生效
       # 9. 收集固件（firmware.bin 为 0x2000 起烧的合并镜像）
+      #    ELF 和 map 一并收集：崩溃时可用 addr2line -e micropython.elf <地址> 精确定位
       - name: Rename firmware
         run: |
           mkdir -p ${{ env.ARTIFACTS_DIR }}
@@ -154,6 +155,8 @@ jobs:
           cp "$B/bootloader/bootloader.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_bootloader.bin"
           cp "$B/partition_table/partition-table.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_partition-table.bin"
           cp "$B/sdkconfig" "${{ env.ARTIFACTS_DIR }}/${OUT}_sdkconfig.txt"
+          cp "$B/micropython.elf" "${{ env.ARTIFACTS_DIR }}/${OUT}_micropython.elf"
+          cp "$B/micropython.map" "${{ env.ARTIFACTS_DIR }}/${OUT}_micropython.map" 2>/dev/null || true
           ls -la ${{ env.ARTIFACTS_DIR }}
 
       # 10. 上传构建产物
