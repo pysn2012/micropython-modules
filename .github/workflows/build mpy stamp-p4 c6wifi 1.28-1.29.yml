@@ -100,6 +100,12 @@ jobs:
           else
             BLE_PATCH=stamp-p4/patches/0001-esp32p4-esp-hosted-nimble-mpy1.28-1.29.patch
           fi
+          # IDF 5.5.4 的 NimBLE 把 ble_hs_max_* 从全局变量改为宏（ble_hs_state_ctx->max_attrs），
+          # 1.27/1.28 残留的 extern 声明与宏展开冲突导致编译失败；
+          # 1.29 上游已删这三行 extern（赋值语句经宏照常工作）。
+          # 对 1.29 此 sed 为空操作，幂等
+          sed -i '/extern uint16_t ble_hs_max_/d' \
+            ${{ env.MICROPYTHON_DIR }}/extmod/nimble/modbluetooth_nimble.c
           # 缓存命中的源码已打过补丁（grep 守卫保证幂等）
           if ! grep -q "__wrap_hci_rx_handler" \
             ${{ env.MICROPYTHON_DIR }}/ports/esp32/mpnimbleport.c; then
