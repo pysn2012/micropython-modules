@@ -43,7 +43,7 @@ jobs:
             ~/.espressif/
             ~/.cache/pip/
             ${{ env.MICROPYTHON_DIR }}
-          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}-stamp4v4
+          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}-stamp4v5
 
       # 3. 安装系统依赖（仅在缓存未命中时）
       - name: Install system dependencies
@@ -94,13 +94,15 @@ jobs:
           # BLE：NimBLE over esp_hosted（UIFLOW2 配方）。
           # 0001 补丁适配 1.28+ 的 MICROPY_BLUETOOTH_NIMBLE_PORT_INIT_RETURNS_ERROR 条件块，
           # 当前矩阵仅 v1.29.0（0002 为 1.27 专用补丁，备用，见 patches/ 目录）
-          # 缓存命中的源码已打过补丁（grep 守卫保证幂等）
-          if ! grep -q "__wrap_hci_rx_handler" \
-            ${{ env.MICROPYTHON_DIR }}/ports/esp32/mpnimbleport.c; then
+          # 缓存命中的源码已打过补丁（grep 守卫保证幂等）。
+          # 标记必须是新版补丁独有：ble_hs_state_ctx 守卫只在带 0030 修复的补丁里出现，
+          # 旧缓存源码（带老补丁）不含它 → 强制重打。缓存 key 已升 stamp4v5 双保险
+          if ! grep -q "ble_hs_state_ctx" \
+            ${{ env.MICROPYTHON_DIR }}/extmod/nimble/modbluetooth_nimble.c; then
             patch -d ${{ env.MICROPYTHON_DIR }} -p1 \
               < ${{ github.workspace }}/stamp-p4/patches/0001-esp32p4-esp-hosted-nimble-mpy1.28-1.29.patch
           else
-            echo "BLE patch already applied (cached source), skipping"
+            echo "BLE patch (with state_ctx guard) already applied, skipping"
           fi
           # IDF 5.5.4 的 NimBLE 把 ble_hs_max_* 从全局变量改为宏；1.29 上游已删 extern，
           # 此 sed 为防御性空操作，保留以防未来降级/换版本时踩同一坑
