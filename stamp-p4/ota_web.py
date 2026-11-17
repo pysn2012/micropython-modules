@@ -30,24 +30,46 @@ _HTML = (
     b"<!DOCTYPE html><html><head><meta charset='utf-8'>"
     b"<meta name='viewport' content='width=device-width,initial-scale=1'>"
     b"<title>Stamp-P4 OTA</title><style>"
-    b"body{font-family:sans-serif;max-width:480px;margin:40px auto;padding:0 16px}"
-    b".bar{background:#eee;height:24px;border-radius:12px;overflow:hidden;margin:16px 0}"
+    b"body{font-family:sans-serif;max-width:420px;margin:32px auto;padding:0 16px;color:#333}"
+    b"h2{margin:0 0 14px;font-size:20px}"
+    b".card{background:#f7f8fa;border:1px solid #e4e5e8;border-radius:12px;padding:14px 16px;margin-bottom:14px}"
+    b".row{display:flex;justify-content:space-between;gap:12px;padding:3px 0;font-size:14px}"
+    b".k{color:#8a8a8a;flex-shrink:0}"
+    b".v{font-weight:500;text-align:right;word-break:break-all}"
+    b".lbl{font-size:13px;color:#8a8a8a;margin-bottom:6px}"
+    b"input[type=file]{width:100%;margin-bottom:12px;font-size:14px}"
+    b"button{width:100%;padding:12px;font-size:16px;background:#2b7de9;color:#fff;border:0;border-radius:8px}"
+    b".bar{background:#e9e9ec;height:20px;border-radius:10px;overflow:hidden;margin:14px 0 8px}"
     b".fill{background:#2b7de9;height:100%;width:0%;transition:width .3s}"
-    b"button{padding:10px 24px;font-size:16px}"
-    b"#st{margin-top:12px;color:#555;white-space:pre-wrap}"
+    b"#st{font-size:13px;color:#555;white-space:pre-wrap;min-height:16px}"
     b"</style></head><body>"
     b"<h2>Stamp-P4 OTA \xe5\x8d\x87\xe7\xba\xa7</h2>"
-    b"<div id='cur'>\xe8\xaf\xbb\xe5\x8f\x96\xe7\x89\x88\xe6\x9c\xac\xe4\xb8\xad...</div>"
-    b"<p><input type='file' id='f' accept='.bin'></p>"
+    b"<div class='card' id='cur'>\xe8\xaf\xbb\xe5\x8f\x96\xe5\x9b\xba\xe4\xbb\xb6\xe4\xbf\xa1\xe6\x81\xaf\xe4\xb8\xad...</div>"
+    b"<div class='card'>"
+    b"<div class='lbl'>\xe5\x8d\x87\xe7\xba\xa7\xe5\x9b\xba\xe4\xbb\xb6\xe6\x96\x87\xe4\xbb\xb6\xef\xbc\x88micropython.bin\xef\xbc\x89</div>"
+    b"<input type='file' id='f' accept='.bin'>"
     b"<button onclick='up()'>\xe5\xbc\x80\xe5\xa7\x8b\xe5\x8d\x87\xe7\xba\xa7</button>"
     b"<div class='bar'><div class='fill' id='p'></div></div>"
     b"<div id='st'></div>"
+    b"</div>"
     b"<script>"
     b"function $(id){return document.getElementById(id);}"
-    b"fetch('/info').then(r=>r.text()).then(t=>$('cur').textContent=t);"
+    b"function row(k,v){return \"<div class='row'><span class='k'>\"+k+\"</span><span class='v'>\"+v+\"</span></div>\";}"
+    b"var sm={pending_verify:'\xe5\xbe\x85\xe9\xaa\x8c\xe8\xaf\x81',valid:'\xe5\xb7\xb2\xe7\xa1\xae\xe8\xae\xa4',invalid:'\xe6\x97\xa0\xe6\x95\x88',aborted:'\xe5\xb7\xb2\xe4\xb8\xad\xe6\xad\xa2'};"
+    b"fetch('/info').then(r=>r.text()).then(t=>{"
+    b"var m={};t.split('\\n').forEach(function(l){var i=l.indexOf('=');if(i>0)m[l.slice(0,i)]=l.slice(i+1);});"
+    b"var v=m.version&&m.version.length>24?m.version.slice(0,24)+'\xe2\x80\xa6':m.version;"
+    b"$('cur').innerHTML=row('\xe8\xbf\x90\xe8\xa1\x8c\xe5\x88\x86\xe5\x8c\xba',m.partition)"
+    b"+row('\xe5\x9b\xba\xe4\xbb\xb6\xe7\x89\x88\xe6\x9c\xac',v)"
+    b"+row('\xe6\x9e\x84\xe5\xbb\xba\xe6\x97\xb6\xe9\x97\xb4',m.build)"
+    b"+row('IDF \xe7\x89\x88\xe6\x9c\xac',m.idf)"
+    b"+row('\xe9\x95\x9c\xe5\x83\x8f\xe7\x8a\xb6\xe6\x80\x81',sm[m.state]||m.state);});"
+    b"$('f').onchange=function(){var f=$('f').files[0];"
+    b"$('st').textContent=f?'\xe5\xb7\xb2\xe9\x80\x89\xe6\x8b\xa9: '+f.name+' ('+f.size+' bytes)':'';};"
     b"function up(){"
     b"var el=$('f');var f=el.files[0];"
     b"if(!f){$('st').textContent='\xe8\xaf\xb7\xe5\x85\x88\xe9\x80\x89\xe6\x8b\xa9\xe5\x9b\xba\xe4\xbb\xb6';return;}"
+    b"$('st').textContent='\xe6\xad\xa3\xe5\x9c\xa8\xe5\x8d\x87\xe7\xba\xa7\xef\xbc\x8c\xe8\xaf\xb7\xe5\x8b\xbf\xe6\x96\xad\xe7\x94\xb5...';"
     b"var x=new XMLHttpRequest();"
     b"x.open('POST','/upload');"
     b"x.upload.onprogress=function(e){"
@@ -174,8 +196,14 @@ def run():
             path = line.split(" ")[1] if " " in line else "/"
             if path.startswith("/info"):
                 i = ota.info()
-                txt = "partition=%s  version=%s  build=%s %s  idf=%s" % (
-                    i[0], i[2], i[3], i[4], i[5])
+                state = i[7] if len(i) > 7 else "undefined"
+                txt = "\n".join([
+                    "partition=%s" % i[0],
+                    "version=%s" % i[2],
+                    "build=%s %s" % (i[3], i[4]),
+                    "idf=%s" % i[5],
+                    "state=%s" % state,
+                ])
                 _send(conn, "200 OK", "text/plain", txt.encode())
             elif path.startswith("/upload"):
                 handle_upload(conn, head, body)
