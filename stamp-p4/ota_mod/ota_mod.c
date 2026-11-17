@@ -21,15 +21,15 @@
 #include "esp_app_desc.h"
 #include "esp_partition.h"
 
-STATIC esp_ota_handle_t s_handle = 0;
-STATIC bool s_active = false;
+static esp_ota_handle_t s_handle = 0;
+static bool s_active = false;
 
-STATIC const esp_partition_t *ota_get_target(void) {
+static const esp_partition_t *ota_get_target(void) {
     return esp_ota_get_next_update_partition(NULL);
 }
 
 // info() -> (run_label, next_label, version, date, time, idf_ver, elf_sha256)
-STATIC mp_obj_t ota_info(void) {
+static mp_obj_t ota_info(void) {
     const esp_partition_t *run = esp_ota_get_running_partition();
     const esp_partition_t *upd = ota_get_target();
     const esp_app_desc_t *d = esp_app_get_description();
@@ -44,9 +44,9 @@ STATIC mp_obj_t ota_info(void) {
     items[6] = mp_obj_new_str(d->app_elf_sha256, 64);
     return mp_obj_new_tuple(7, items);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(ota_info_obj, ota_info);
+static MP_DEFINE_CONST_FUN_OBJ_0(ota_info_obj, ota_info);
 
-STATIC mp_obj_t ota_begin(void) {
+static mp_obj_t ota_begin(void) {
     if (s_active) {
         mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("ota session already started"));
     }
@@ -62,9 +62,9 @@ STATIC mp_obj_t ota_begin(void) {
     s_active = true;
     return mp_const_true;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(ota_begin_obj, ota_begin);
+static MP_DEFINE_CONST_FUN_OBJ_0(ota_begin_obj, ota_begin);
 
-STATIC mp_obj_t ota_write(mp_obj_t buf_in) {
+static mp_obj_t ota_write(mp_obj_t buf_in) {
     if (!s_active) {
         mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("ota session not started"));
     }
@@ -80,10 +80,10 @@ STATIC mp_obj_t ota_write(mp_obj_t buf_in) {
     }
     return mp_const_true;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(ota_write_obj, ota_write);
+static MP_DEFINE_CONST_FUN_OBJ_1(ota_write_obj, ota_write);
 
 // finish(): esp_ota_end（镜像校验）+ esp_ota_set_boot_partition（切换启动槽）
-STATIC mp_obj_t ota_finish(void) {
+static mp_obj_t ota_finish(void) {
     if (!s_active) {
         mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("ota session not started"));
     }
@@ -105,10 +105,10 @@ STATIC mp_obj_t ota_finish(void) {
     }
     return mp_const_true;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(ota_finish_obj, ota_finish);
+static MP_DEFINE_CONST_FUN_OBJ_0(ota_finish_obj, ota_finish);
 
 // abort(): 放弃升级，otadata 不动，重启后仍运行旧固件
-STATIC mp_obj_t ota_abort(void) {
+static mp_obj_t ota_abort(void) {
     if (s_active) {
         esp_ota_abort(s_handle);
         s_handle = 0;
@@ -116,9 +116,9 @@ STATIC mp_obj_t ota_abort(void) {
     }
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_0(ota_abort_obj, ota_abort);
+static MP_DEFINE_CONST_FUN_OBJ_0(ota_abort_obj, ota_abort);
 
-STATIC const mp_rom_map_elem_t ota_module_globals_table[] = {
+static const mp_rom_map_elem_t ota_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_ota) },
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&ota_info_obj) },
     { MP_ROM_QSTR(MP_QSTR_begin), MP_ROM_PTR(&ota_begin_obj) },
@@ -126,7 +126,7 @@ STATIC const mp_rom_map_elem_t ota_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_finish), MP_ROM_PTR(&ota_finish_obj) },
     { MP_ROM_QSTR(MP_QSTR_abort), MP_ROM_PTR(&ota_abort_obj) },
 };
-STATIC MP_DEFINE_CONST_DICT(ota_module_globals, ota_module_globals_table);
+static MP_DEFINE_CONST_DICT(ota_module_globals, ota_module_globals_table);
 
 const mp_obj_module_t mp_module_ota = {
     .base = { &mp_type_module },
