@@ -1,4 +1,5 @@
 # 文件名保留 1.28-1.29 历史名（GitHub Actions 按 name 触发，改名不影响使用）
+name: build mpy stamp-p4 c6wifi 1.27-1.29
 
 # 仅手动触发
 on:
