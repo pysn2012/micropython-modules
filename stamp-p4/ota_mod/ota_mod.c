@@ -50,7 +50,7 @@ static mp_obj_t ota_info(void) {
     const esp_partition_t *upd = ota_get_target();
     const esp_app_desc_t *d = esp_app_get_description();
 
-    mp_obj_t items[7];
+    mp_obj_t items[8];
     items[0] = mp_obj_new_str(run->label, strlen(run->label));
     items[1] = upd != NULL ? mp_obj_new_str(upd->label, strlen(upd->label)) : mp_const_none;
 #ifdef MICROPY_OTA_VERSION
