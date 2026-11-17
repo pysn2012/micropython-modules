@@ -109,15 +109,16 @@ jobs:
             echo "BLE patch already applied (cached source), skipping"
           fi
           # esp_hosted HCI RX 与 NimBLE 池销毁串行化（UIFLOW2 m5stack/CMakeLists.txt:109 同款）
+          # 注意：YAML 块内不能用 heredoc（顶格内容会截断 YAML 块标量），改用 echo 追加
           if ! grep -q "wrap=hci_rx_handler" \
             ${{ env.MICROPYTHON_DIR }}/ports/esp32/CMakeLists.txt; then
-            cat >> ${{ env.MICROPYTHON_DIR }}/ports/esp32/CMakeLists.txt << 'EOF'
-
-# Stamp-P4 + esp_hosted: serialize Hosted HCI RX against NimBLE pool teardown
-if(CONFIG_IDF_TARGET_ESP32P4 AND CONFIG_ESP_HOSTED_ENABLE_BT_NIMBLE)
-    target_link_options(micropython.elf PRIVATE "-Wl,--wrap=hci_rx_handler")
-endif()
-EOF
+            {
+              echo ""
+              echo "# Stamp-P4 + esp_hosted: serialize Hosted HCI RX against NimBLE pool teardown"
+              echo "if(CONFIG_IDF_TARGET_ESP32P4 AND CONFIG_ESP_HOSTED_ENABLE_BT_NIMBLE)"
+              echo "    target_link_options(micropython.elf PRIVATE \"-Wl,--wrap=hci_rx_handler\")"
+              echo "endif()"
+            } >> ${{ env.MICROPYTHON_DIR }}/ports/esp32/CMakeLists.txt
           fi
           # 注：esp_wifi_remote 1.4.0 头文件为新世代，WIFI_AUTH_WPA_ENTERPRISE /
           #     WIFI_AUTH_MAX==17 均存在，0.8.5 时代的 network_wlan.c sed 兼容补丁全部删除
