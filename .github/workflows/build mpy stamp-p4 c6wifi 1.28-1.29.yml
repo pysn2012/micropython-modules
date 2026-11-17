@@ -1,4 +1,4 @@
-name: build mpy stamp-p4 c6wifi 1.28-1.29
+# 文件名保留 1.28-1.29 历史名（GitHub Actions 按 name 触发，改名不影响使用）
 
 # 仅手动触发
 on:
@@ -25,6 +25,7 @@ jobs:
         include:
           - mpy_version: v1.29.0
           - mpy_version: v1.28.0
+          - mpy_version: v1.27.0
 
     steps:
       # 1. 检出当前仓库（含 stamp-p4/ 自定义板目录）
@@ -90,13 +91,19 @@ jobs:
           rm -f ${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock
           rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/managed_components
           # BLE：NimBLE over esp_hosted（UIFLOW2 配方）。
-          # 对 micropython 源码打 BLE 生命周期补丁（P4 + esp_hosted 专用），
-          # 已在 v1.28.0 / v1.29.0 双版本 dry-run 验证可套。
+          # 按 mpy 版本选补丁（两份都已本地 dry-run 验证）：
+          #   1.27       → 0002（UIFLOW2 原版 0027+0032 上下文，1.27 为 plain nimble_port_init）
+          #   1.28/1.29 → 0001（适配 1.28 新增的 MICROPY_BLUETOOTH_NIMBLE_PORT_INIT_RETURNS_ERROR 条件块）
+          if [ "${{ matrix.mpy_version }}" = "v1.27.0" ]; then
+            BLE_PATCH=stamp-p4/patches/0002-esp32p4-esp-hosted-nimble-mpy1.27.patch
+          else
+            BLE_PATCH=stamp-p4/patches/0001-esp32p4-esp-hosted-nimble-mpy1.28-1.29.patch
+          fi
           # 缓存命中的源码已打过补丁（grep 守卫保证幂等）
           if ! grep -q "__wrap_hci_rx_handler" \
             ${{ env.MICROPYTHON_DIR }}/ports/esp32/mpnimbleport.c; then
             patch -d ${{ env.MICROPYTHON_DIR }} -p1 \
-              < ${{ github.workspace }}/stamp-p4/patches/0001-esp32p4-esp-hosted-nimble-mpy1.28-1.29.patch
+              < ${{ github.workspace }}/${BLE_PATCH}
           else
             echo "BLE patch already applied (cached source), skipping"
           fi
