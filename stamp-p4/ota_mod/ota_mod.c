@@ -4,11 +4,13 @@
  *
  * 用法（REPL）：
  *   import ota
- *   ota.info()          # (运行分区, 更新分区, 版本, 构建日期, 构建时间, IDF版本, ELF SHA256)
+ *   ota.info()          # (运行分区, 更新分区, 版本, 构建日期, 构建时间, IDF版本, ELF SHA256, 镜像状态)
  *   ota.begin()         # 打开更新槽（esp_ota_begin，OTA_SIZE_UNKNOWN）
  *   ota.write(b"....")  # 流式写入
  *   ota.finish()        # esp_ota_end + esp_ota_set_boot_partition
  *   ota.abort()         # 放弃本次升级（otadata 不动，重启后仍跑旧固件）
+ *   ota.mark_valid()    # 确认当前 OTA 新固件有效（回滚保护下升级后必须调用）
+ *   ota.mark_invalid_reboot() # 标记当前固件无效并重启（bootloader 自动回退旧分区）
  * 然后 machine.reset() 即切换到新固件。
  *
  * 组件依赖：app_update / esp_app_format / esp_partition 均在 esp32 端口
@@ -29,7 +31,20 @@ static const esp_partition_t *ota_get_target(void) {
     return esp_ota_get_next_update_partition(NULL);
 }
 
-// info() -> (run_label, next_label, version, date, time, idf_ver, elf_sha256)
+// 镜像状态字符串（esp_ota_img_states_t）：升级后未确认=pending_verify，确认后=valid
+static const char *img_state_str(esp_ota_img_states_t st) {
+    switch (st) {
+    case ESP_OTA_IMG_NEW:            return "new";
+    case ESP_OTA_IMG_PENDING_VERIFY: return "pending_verify";
+    case ESP_OTA_IMG_VALID:          return "valid";
+    case ESP_OTA_IMG_INVALID:        return "invalid";
+    case ESP_OTA_IMG_ABORTED:        return "aborted";
+    case ESP_OTA_IMG_UNDEFINED:      return "undefined";
+    default:                         return "unknown";
+    }
+}
+
+// info() -> (run_label, next_label, version, date, time, idf_ver, elf_sha256, img_state)
 static mp_obj_t ota_info(void) {
     const esp_partition_t *run = esp_ota_get_running_partition();
     const esp_partition_t *upd = ota_get_target();
@@ -54,7 +69,15 @@ static mp_obj_t ota_info(void) {
         snprintf(&sha_hex[i * 2], 3, "%02x", d->app_elf_sha256[i]);
     }
     items[6] = mp_obj_new_str(sha_hex, 64);
-    return mp_obj_new_tuple(7, items);
+    // 运行分区镜像状态：回滚保护的行为观察口（无回滚保护的旧固件显示 undefined）
+    esp_ota_img_states_t img_state;
+    if (esp_ota_get_state_partition(run, &img_state) == ESP_OK) {
+        items[7] = mp_obj_new_str(img_state_str(img_state),
+                                  strlen(img_state_str(img_state)));
+    } else {
+        items[7] = mp_obj_new_str("unknown", 7);
+    }
+    return mp_obj_new_tuple(8, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(ota_info_obj, ota_info);
 
@@ -130,6 +153,27 @@ static mp_obj_t ota_abort(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(ota_abort_obj, ota_abort);
 
+// mark_valid(): 确认当前运行的 OTA 新固件有效、取消回滚。
+// CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 开启后，升级重启进入的新固件处于
+// pending_verify 状态；确认前若复位，bootloader 判定新固件不可靠，回退旧分区。
+static mp_obj_t ota_mark_valid(void) {
+    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    if (err != ESP_OK) {
+        mp_raise_msg_varg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("mark_app_valid failed: 0x%x"), err);
+    }
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(ota_mark_valid_obj, ota_mark_valid);
+
+// mark_invalid_reboot(): 标记当前固件无效并立即重启（不会返回），
+// bootloader 回退到上一个有效分区。用于应用自检失败时主动回滚。
+static mp_obj_t ota_mark_invalid_reboot(void) {
+    esp_ota_mark_app_invalid_rollback_and_reboot();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(ota_mark_invalid_reboot_obj, ota_mark_invalid_reboot);
+
 static const mp_rom_map_elem_t ota_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_ota) },
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&ota_info_obj) },
@@ -137,6 +181,8 @@ static const mp_rom_map_elem_t ota_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&ota_write_obj) },
     { MP_ROM_QSTR(MP_QSTR_finish), MP_ROM_PTR(&ota_finish_obj) },
     { MP_ROM_QSTR(MP_QSTR_abort), MP_ROM_PTR(&ota_abort_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mark_valid), MP_ROM_PTR(&ota_mark_valid_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mark_invalid_reboot), MP_ROM_PTR(&ota_mark_invalid_reboot_obj) },
 };
 static MP_DEFINE_CONST_DICT(ota_module_globals, ota_module_globals_table);
 

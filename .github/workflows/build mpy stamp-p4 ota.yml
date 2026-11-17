@@ -48,7 +48,7 @@ jobs:
             ~/.espressif/
             ~/.cache/pip/
             ${{ env.MICROPYTHON_DIR }}
-          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}-stamp-ota-v1
+          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}-stamp-ota-v2
 
       # 3. 安装系统依赖（仅在缓存未命中时）
       - name: Install system dependencies
@@ -90,7 +90,7 @@ jobs:
             ${{ env.MICROPYTHON_DIR }}/ports/esp32/main/idf_component.yml
           rm -f ${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock
           rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/managed_components
-          # BLE 补丁（幂等守卫标记 = ble_hs_state_ctx，新补丁独有；缓存 key stamp-ota-v1 为全新源码）
+          # BLE 补丁（幂等守卫标记 = ble_hs_state_ctx，新补丁独有；缓存 key stamp-ota-v2 为全新源码）
           if ! grep -q "ble_hs_state_ctx" \
             ${{ env.MICROPYTHON_DIR }}/extmod/nimble/modbluetooth_nimble.c; then
             patch -d ${{ env.MICROPYTHON_DIR }} -p1 \
@@ -111,6 +111,10 @@ jobs:
             ${{ env.MICROPYTHON_DIR }}/ports/esp32/partitions-16mb-ota.csv
           # 2) 板级 sdkconfig 切换分区表（仅改 OTA 工作流副本，不动 stamp-p4/ 原件）
           echo 'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-16mb-ota.csv"' \
+            >> ${{ env.MICROPYTHON_DIR }}/ports/esp32/boards/STAMP_P4_C6/sdkconfig.stamp_p4
+          # 3) 回滚保护：OTA 后新固件处于 pending_verify，需 ota.mark_valid() 确认；
+          #    确认前复位则 bootloader 自动回退旧分区（ota_web.py 联网成功后自动确认）
+          echo 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' \
             >> ${{ env.MICROPYTHON_DIR }}/ports/esp32/boards/STAMP_P4_C6/sdkconfig.stamp_p4
           # 清除缓存的构建目录与 sdkconfig
           rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/build-*
@@ -143,6 +147,9 @@ jobs:
             echo "OTA partitions missing!"
             exit 1
           fi
+          echo "---- 回滚保护自检 ----"
+          grep -q "CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y" "$B/sdkconfig" \
+            && echo "rollback enable: OK" || { echo "rollback not enabled!"; exit 1; }
           echo "---- ota 模块符号自检 ----"
           strings "$B/micropython.elf" | grep -m1 "ota_write" \
             && echo "ota module linked: OK" || { echo "ota module missing"; exit 1; }

@@ -147,7 +147,14 @@ def handle_upload(conn, head, body):
 def run():
     connect_wifi()
     info = ota.info()
-    print("[web-ota] running=%s version=%s build=%s %s" % (info[0], info[2], info[3], info[4]))
+    print("[web-ota] running=%s version=%s build=%s %s state=%s" % (
+        info[0], info[2], info[3], info[4], info[7]))
+    # 回滚保护确认：升级重启后的新固件处于 pending_verify，能联网说明固件基本可用，
+    # 自动 mark_valid 解除回滚保护（否则此时复位会被 bootloader 回退到旧分区）。
+    # 固件里待确认的分区状态：pending_verify -> valid
+    if info[7] == "pending_verify":
+        ota.mark_valid()
+        print("[web-ota] new firmware confirmed (rollback cancelled)")
 
     s = socket.socket()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
