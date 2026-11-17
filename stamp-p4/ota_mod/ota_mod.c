@@ -41,7 +41,8 @@ static mp_obj_t ota_info(void) {
     items[3] = mp_obj_new_str(d->date, strlen(d->date));
     items[4] = mp_obj_new_str(d->time, strlen(d->time));
     items[5] = mp_obj_new_str(d->idf_ver, strlen(d->idf_ver));
-    items[6] = mp_obj_new_str(d->app_elf_sha256, 64);
+    // app_elf_sha256 在 IDF 5.5.x 中是 const uint8_t[]，需显式转 char*（-Werror=pointer-sign）
+    items[6] = mp_obj_new_str((const char *)d->app_elf_sha256, 64);
     return mp_obj_new_tuple(7, items);
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(ota_info_obj, ota_info);
