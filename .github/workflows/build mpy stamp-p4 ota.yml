@@ -21,6 +21,8 @@ env:
   # 对齐定版配方 stamp-p4-v1.0（tag）：
   #   IDF v5.5.4 + esp_hosted 2.12.0 + esp_wifi_remote 1.4.0 + BLE(NimBLE over hosted)
   ESP_IDF_VERSION: v5.5.4
+  # 固件版本号：编译宏注入 ota 模块（ota.info() 可读，用于 OTA 新旧区分）
+  OTA_VERSION: v1.29.0-ota-${{ github.sha }}
 
 jobs:
   build:

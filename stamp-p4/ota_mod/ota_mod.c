@@ -38,7 +38,13 @@ static mp_obj_t ota_info(void) {
     mp_obj_t items[7];
     items[0] = mp_obj_new_str(run->label, strlen(run->label));
     items[1] = upd != NULL ? mp_obj_new_str(upd->label, strlen(upd->label)) : mp_const_none;
+#ifdef MICROPY_OTA_VERSION
+    // 编译期注入的版本号（workflow 传入，每版唯一）；micropython 未设 PROJECT_VER 时
+    // app_desc.version 为空串，故优先用注入值
+    items[2] = mp_obj_new_str(MICROPY_OTA_VERSION, strlen(MICROPY_OTA_VERSION));
+#else
     items[2] = mp_obj_new_str(d->version, strlen(d->version));
+#endif
     items[3] = mp_obj_new_str(d->date, strlen(d->date));
     items[4] = mp_obj_new_str(d->time, strlen(d->time));
     items[5] = mp_obj_new_str(d->idf_ver, strlen(d->idf_ver));

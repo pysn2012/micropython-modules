@@ -21,3 +21,10 @@ if(DEFINED ENV{IDF_PATH})
 endif()
 
 target_link_libraries(usermod INTERFACE usermod_ota)
+
+# 固件版本号：由 workflow 环境变量 OTA_VERSION 注入（每版唯一，用于 OTA 新旧区分）
+if(DEFINED ENV{OTA_VERSION})
+    target_compile_definitions(usermod_ota INTERFACE
+        MICROPY_OTA_VERSION="$ENV{OTA_VERSION}"
+    )
+endif()

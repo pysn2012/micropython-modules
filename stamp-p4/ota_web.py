@@ -159,7 +159,8 @@ def run():
         conn.settimeout(8)
         try:
             head, body = _read_head(conn)
-            line = head.split(b"\r\n")[0].decode(errors="ignore")
+            # 注意：MicroPython 的 bytes.decode() 不支持 errors 关键字参数（与 CPython 不同）
+            line = head.split(b"\r\n")[0].decode()
             path = line.split(" ")[1] if " " in line else "/"
             if path.startswith("/info"):
                 i = ota.info()
@@ -173,8 +174,14 @@ def run():
                 _send(conn, "200 OK", "text/html", _HTML)
         except Exception as e:
             print("[web-ota] request error: %s" % e)
+            import sys
+            sys.print_exception(e)
             try:
                 _send(conn, "400 Bad Request", "text/plain", str(e).encode())
             except Exception:
                 pass
         conn.close()
+
+
+# 保存到板子后直接运行（Thonny F5 / 存为 main.py 开机自动进入升级模式）
+run()
