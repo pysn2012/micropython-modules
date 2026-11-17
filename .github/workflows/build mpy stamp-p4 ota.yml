@@ -1,0 +1,166 @@
+name: build mpy stamp-p4 ota
+
+# OTA 固件编译（独立工作流，与 build mpy stamp-p4 c6wifi 隔离）
+# 差异（相对 c6wifi 工作流）：
+#   1. 自定义 OTA 乒乓分区表（partitions-16mb-ota.csv）
+#   2. USER_C_MODULES 注入 ota C 模块（封装 esp_ota_ops）
+#   3. artifact 增加 micropython.bin（OTA 升级载荷 = app image）
+# 注意：改了本工作流配置/补丁时必须升级缓存 key 后缀（-stamp-ota-vN）
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MICROPYTHON_DIR: ${{ github.workspace }}/micropython
+  ESP_IDF_DIR: ${{ github.workspace }}/esp-idf
+  ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
+  # 对齐定版配方 stamp-p4-v1.0（tag）：
+  #   IDF v5.5.4 + esp_hosted 2.12.0 + esp_wifi_remote 1.4.0 + BLE(NimBLE over hosted)
+  ESP_IDF_VERSION: v5.5.4
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mpy_version: v1.29.0
+
+    steps:
+      # 1. 检出当前仓库（含 stamp-p4/ 板目录 + ota_mod/ C 模块）
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # 2. 缓存（独立 key，与 c6wifi 工作流互不干扰）
+      - name: Cache ESP-IDF and MicroPython
+        id: cache_all
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ESP_IDF_DIR }}
+            ~/.espressif/
+            ~/.cache/pip/
+            ${{ env.MICROPYTHON_DIR }}
+          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}-stamp-ota-v1
+
+      # 3. 安装系统依赖（仅在缓存未命中时）
+      - name: Install system dependencies
+        if: steps.cache_all.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git wget flex bison gperf python3 python3-pip python3-venv \
+            cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0 patch
+
+      # 4. 克隆 MicroPython（仅在缓存未命中时）
+      - name: Clone MicroPython
+        if: steps.cache_all.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch ${{ matrix.mpy_version }} \
+            https://github.com/micropython/micropython.git ${{ env.MICROPYTHON_DIR }}
+          cd ${{ env.MICROPYTHON_DIR }}
+          git submodule update --init --depth 1
+          make -C mpy-cross
+
+      # 5. 克隆并配置 ESP-IDF（仅在缓存未命中时，目标含 esp32p4）
+      - name: Clone & setup ESP-IDF
+        if: steps.cache_all.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch ${{ env.ESP_IDF_VERSION }} \
+            https://github.com/espressif/esp-idf.git ${{ env.ESP_IDF_DIR }}
+          git -C ${{ env.ESP_IDF_DIR }} submodule update --init --recursive --filter=tree:0
+          ${{ env.ESP_IDF_DIR }}/install.sh esp32p4
+
+      # 6. 导入板目录 + 组件版本对齐 + OTA 差异项（分区表 / C 模块）
+      - name: Install Stamp-P4 board & align components
+        run: |
+          cp -r ${{ github.workspace }}/stamp-p4 \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/boards/STAMP_P4_C6
+          # 组件版本对齐定版配方（esp_hosted 2.12.0 + esp_wifi_remote 1.4.0）
+          sed -i 's/version: "2.7.0"/version: "2.12.0"/' \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/main/idf_component.yml
+          sed -i 's/version: "0.15.2"/version: "1.4.0"/' \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/main/idf_component.yml
+          rm -f ${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock
+          rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/managed_components
+          # BLE 补丁（幂等守卫标记 = ble_hs_state_ctx，新补丁独有；缓存 key stamp-ota-v1 为全新源码）
+          if ! grep -q "ble_hs_state_ctx" \
+            ${{ env.MICROPYTHON_DIR }}/extmod/nimble/modbluetooth_nimble.c; then
+            patch -d ${{ env.MICROPYTHON_DIR }} -p1 \
+              < ${{ github.workspace }}/stamp-p4/patches/0001-esp32p4-esp-hosted-nimble-mpy1.28-1.29.patch
+          else
+            echo "BLE patch (with state_ctx guard) already applied, skipping"
+          fi
+          # IDF 5.5.4 NimBLE 宏化防御性清理（1.29 为空操作）
+          sed -i '/extern uint16_t ble_hs_max_/d' \
+            ${{ env.MICROPYTHON_DIR }}/extmod/nimble/modbluetooth_nimble.c
+          # ---- OTA 差异项 ----
+          # 1) OTA 乒乓分区表复制进端口目录（Kconfig 的 CUSTOM_FILENAME 相对项目目录解析）
+          cp ${{ github.workspace }}/stamp-p4/partitions-16mb-ota.csv \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/partitions-16mb-ota.csv
+          # 2) 板级 sdkconfig 切换分区表（仅改 OTA 工作流副本，不动 stamp-p4/ 原件）
+          echo 'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-16mb-ota.csv"' \
+            >> ${{ env.MICROPYTHON_DIR }}/ports/esp32/boards/STAMP_P4_C6/sdkconfig.stamp_p4
+          # 清除缓存的构建目录与 sdkconfig
+          rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/build-*
+          rm -f  ${{ env.MICROPYTHON_DIR }}/ports/esp32/sdkconfig*
+          echo "---- 组件版本核对 ----"
+          grep -E "esp_hosted|esp_wifi_remote" \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/main/idf_component.yml | grep -E "espressif|version"
+
+      # 7. 编译固件（OTA C 模块经 USER_C_MODULES 注入）
+      - name: Build firmware
+        run: |
+          source ${{ env.ESP_IDF_DIR }}/export.sh
+          cd ${{ env.MICROPYTHON_DIR }}/ports/esp32
+          make BOARD=STAMP_P4_C6 FLASH_SIZE=16MB \
+            USER_C_MODULES=${{ github.workspace }}/stamp-p4/ota_mod/micropython.cmake \
+            -j$(nproc)
+
+      # 8. 自检：分区表必须真实包含 ota_0/ota_1/vfs，且 ota C 模块已编入
+      - name: Verify OTA config
+        run: |
+          B="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-STAMP_P4_C6"
+          echo "---- 分区表自检 ----"
+          PT=$(python3 ${{ env.ESP_IDF_DIR }}/components/partition_table/gen_esp32part.py \
+            "$B/partition_table/partition-table.bin")
+          echo "$PT"
+          if echo "$PT" | grep -q "ota_0" && echo "$PT" | grep -q "ota_1" \
+            && echo "$PT" | grep -q "otadata" && echo "$PT" | grep -q "vfs"; then
+            echo "OTA partition check: OK"
+          else
+            echo "OTA partitions missing!"
+            exit 1
+          fi
+          echo "---- ota 模块符号自检 ----"
+          strings "$B/micropython.elf" | grep -m1 "ota_write" \
+            && echo "ota module linked: OK" || { echo "ota module missing"; exit 1; }
+
+      # 9. 收集固件（firmware.bin=0x2000 起合并镜像；micropython.bin=OTA 升级载荷 app image）
+      - name: Rename firmware
+        run: |
+          mkdir -p ${{ env.ARTIFACTS_DIR }}
+          B="${{ env.MICROPYTHON_DIR }}/ports/esp32/build-STAMP_P4_C6"
+          MPYV=$(echo "${{ matrix.mpy_version }}" | sed 's/^v//;s/\.0$//')
+          OUT="mpy_${MPYV}_STAMP_P4_C6_OTA_16MB"
+          cp "$B/firmware.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_firmware.bin"
+          cp "$B/micropython.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_micropython.bin"
+          cp "$B/bootloader/bootloader.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_bootloader.bin"
+          cp "$B/partition_table/partition-table.bin" "${{ env.ARTIFACTS_DIR }}/${OUT}_partition-table.bin"
+          cp "$B/sdkconfig" "${{ env.ARTIFACTS_DIR }}/${OUT}_sdkconfig.txt"
+          cp "$B/micropython.elf" "${{ env.ARTIFACTS_DIR }}/${OUT}_micropython.elf"
+          cp "$B/micropython.map" "${{ env.ARTIFACTS_DIR }}/${OUT}_micropython.map" 2>/dev/null || true
+          cp "${{ github.workspace }}/stamp-p4/ota_update.py" "${{ env.ARTIFACTS_DIR }}/ota_update.py"
+          ls -la ${{ env.ARTIFACTS_DIR }}
+
+      # 10. 上传构建产物
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpy-stamp-p4-ota-mpy${{ matrix.mpy_version }}
+          path: ${{ env.ARTIFACTS_DIR }}/*
