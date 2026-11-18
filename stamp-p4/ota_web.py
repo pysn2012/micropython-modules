@@ -139,7 +139,7 @@ def handle_upload(conn, head, body):
     print("[web-ota] running=%s next=%s" % (info[0], info[1]))
 
     # 类型嗅探：ESP app image 首字节固定 0xE9 = 整包（micropython.bin）；
-    # 否则视为 esp_delta_ota 差分包（文件头 magic 0xfccdde10）
+    # 否则视为 esp_delta_ota 差分包（64字节头：magic 0xFCCDDE10 + 基准hash + 保留）
     d = b""
     while not d:
         if body:
@@ -153,8 +153,15 @@ def handle_upload(conn, head, body):
         print("[web-ota] full image")
         ota.begin()
     else:
+        # 校验差分包 magic（小端 0xFCCDDE10），并准备跳过 64 字节文件头
+        # （esp_delta_ota 组件不处理文件头，头部之后才是 detools 补丁数据）
+        if len(d) < 4 or d[0:4] != b"\x10\xdd\xcd\xfc":
+            _send(conn, "400 Bad Request", "text/plain",
+                  b"not an app image nor a delta patch")
+            return
         print("[web-ota] delta patch")
         ota.delta_begin()
+    hdr_skip = 0 if is_image else 64
 
     n = 0
     try:
@@ -165,12 +172,18 @@ def handle_upload(conn, head, body):
                 raise OSError("short read at %d/%d" % (n, length))
             take = min(len(d), length - n)
             chunk = d[:take]
+            d = b""
+            n += take
+            if hdr_skip:
+                if len(chunk) <= hdr_skip:
+                    hdr_skip -= len(chunk)
+                    continue
+                chunk = chunk[hdr_skip:]
+                hdr_skip = 0
             if is_image:
                 ota.write(chunk)
             else:
                 ota.delta_write(chunk)
-            d = b""
-            n += take
             if (n // 65536) != ((n - take) // 65536):
                 print("[web-ota] %d/%d (%d%%)" % (n, length, n * 100 // length))
         if is_image:
