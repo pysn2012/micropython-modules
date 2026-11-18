@@ -47,7 +47,7 @@ _HTML = (
     b"<h2>Stamp-P4 OTA \xe5\x8d\x87\xe7\xba\xa7</h2>"
     b"<div class='card' id='cur'>\xe8\xaf\xbb\xe5\x8f\x96\xe5\x9b\xba\xe4\xbb\xb6\xe4\xbf\xa1\xe6\x81\xaf\xe4\xb8\xad...</div>"
     b"<div class='card'>"
-    b"<div class='lbl'>\xe5\x8d\x87\xe7\xba\xa7\xe5\x9b\xba\xe4\xbb\xb6\xe6\x96\x87\xe4\xbb\xb6\xef\xbc\x88micropython.bin\xef\xbc\x89</div>"
+    b"<div class='lbl'>\xe5\x8d\x87\xe7\xba\xa7\xe6\x96\x87\xe4\xbb\xb6\xef\xbc\x88micropython.bin \xe6\x88\x96\xe5\xb7\xae\xe5\x88\x86\xe5\x8c\x85\xef\xbc\x89</div>"
     b"<input type='file' id='f' accept='.bin'>"
     b"<button onclick='up()'>\xe5\xbc\x80\xe5\xa7\x8b\xe5\x8d\x87\xe7\xba\xa7</button>"
     b"<div class='bar'><div class='fill' id='p'></div></div>"
@@ -138,24 +138,50 @@ def handle_upload(conn, head, body):
     info = ota.info()
     print("[web-ota] running=%s next=%s" % (info[0], info[1]))
 
-    ota.begin()
+    # 类型嗅探：ESP app image 首字节固定 0xE9 = 整包（micropython.bin）；
+    # 否则视为 esp_delta_ota 差分包（文件头 magic 0xfccdde10）
+    d = b""
+    while not d:
+        if body:
+            d, body = body, b""
+        else:
+            d = conn.recv(4096)
+        if not d:
+            raise OSError("empty payload")
+    is_image = d[0] == 0xE9
+    if is_image:
+        print("[web-ota] full image")
+        ota.begin()
+    else:
+        print("[web-ota] delta patch")
+        ota.delta_begin()
+
     n = 0
     try:
         while n < length:
-            if body:
-                d, body = body, b""
-            else:
+            if not d:
                 d = conn.recv(4096)
             if not d:
                 raise OSError("short read at %d/%d" % (n, length))
             take = min(len(d), length - n)
-            ota.write(d[:take])
+            chunk = d[:take]
+            if is_image:
+                ota.write(chunk)
+            else:
+                ota.delta_write(chunk)
+            d = b""
             n += take
-            if (n // 65536) != ((n - len(d)) // 65536):
+            if (n // 65536) != ((n - take) // 65536):
                 print("[web-ota] %d/%d (%d%%)" % (n, length, n * 100 // length))
-        ota.finish()
+        if is_image:
+            ota.finish()
+        else:
+            ota.delta_finish()
     except Exception as e:
-        ota.abort()
+        if is_image:
+            ota.abort()
+        else:
+            ota.delta_abort()
         print("[web-ota] FAILED: %s" % e)
         _send(conn, "500 Internal Server Error", "text/plain",
               ("upgrade failed: %s\n(old firmware still running)" % e).encode())

@@ -48,7 +48,7 @@ jobs:
             ~/.espressif/
             ~/.cache/pip/
             ${{ env.MICROPYTHON_DIR }}
-          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}-stamp-ota-v2
+          key: mpy-${{ matrix.mpy_version }}-idf-${{ env.ESP_IDF_VERSION }}-stamp-ota-v3
 
       # 3. 安装系统依赖（仅在缓存未命中时）
       - name: Install system dependencies
@@ -90,7 +90,7 @@ jobs:
             ${{ env.MICROPYTHON_DIR }}/ports/esp32/main/idf_component.yml
           rm -f ${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock
           rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/managed_components
-          # BLE 补丁（幂等守卫标记 = ble_hs_state_ctx，新补丁独有；缓存 key stamp-ota-v2 为全新源码）
+          # BLE 补丁（幂等守卫标记 = ble_hs_state_ctx，新补丁独有；缓存 key stamp-ota-v3 为全新源码）
           if ! grep -q "ble_hs_state_ctx" \
             ${{ env.MICROPYTHON_DIR }}/extmod/nimble/modbluetooth_nimble.c; then
             patch -d ${{ env.MICROPYTHON_DIR }} -p1 \
@@ -116,6 +116,12 @@ jobs:
           #    确认前复位则 bootloader 自动回退旧分区（ota_web.py 联网成功后自动确认）
           echo 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' \
             >> ${{ env.MICROPYTHON_DIR }}/ports/esp32/boards/STAMP_P4_C6/sdkconfig.stamp_p4
+          # 4) 差分 OTA：esp_delta_ota 组件（设备端 heatshrink 解压还原新固件）
+          echo '  espressif/esp_delta_ota: "^1.1.4"' \
+            >> ${{ env.MICROPYTHON_DIR }}/ports/esp32/main/idf_component.yml
+          # main 组件需 REQUIRES esp_delta_ota（ota_mod.c 引其头文件并链接）
+          sed -i 's/^    app_update$/    app_update\n    esp_delta_ota/' \
+            ${{ env.MICROPYTHON_DIR }}/ports/esp32/esp32_common.cmake
           # 清除缓存的构建目录与 sdkconfig
           rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/build-*
           rm -f  ${{ env.MICROPYTHON_DIR }}/ports/esp32/sdkconfig*
@@ -153,6 +159,8 @@ jobs:
           echo "---- ota 模块符号自检 ----"
           strings "$B/micropython.elf" | grep -m1 "ota_write" \
             && echo "ota module linked: OK" || { echo "ota module missing"; exit 1; }
+          strings "$B/micropython.elf" | grep -m1 "esp_delta_ota_feed_patch" \
+            && echo "delta ota linked: OK" || { echo "esp_delta_ota missing"; exit 1; }
 
       # 9. 收集固件（firmware.bin=0x2000 起合并镜像；micropython.bin=OTA 升级载荷 app image）
       - name: Rename firmware
@@ -169,6 +177,9 @@ jobs:
           cp "$B/micropython.elf" "${{ env.ARTIFACTS_DIR }}/${OUT}_micropython.elf"
           cp "$B/micropython.map" "${{ env.ARTIFACTS_DIR }}/${OUT}_micropython.map" 2>/dev/null || true
           cp "${{ github.workspace }}/stamp-p4/ota_update.py" "${{ env.ARTIFACTS_DIR }}/ota_update.py"
+          mkdir -p ${{ env.ARTIFACTS_DIR }}/tools
+          cp "${{ github.workspace }}/stamp-p4/tools/esp_delta_ota_patch_gen.py" \
+            "${{ env.ARTIFACTS_DIR }}/tools/esp_delta_ota_patch_gen.py"
           ls -la ${{ env.ARTIFACTS_DIR }}
 
       # 10. 上传构建产物

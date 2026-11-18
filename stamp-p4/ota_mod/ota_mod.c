@@ -23,9 +23,11 @@
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
 #include "esp_partition.h"
+#include "esp_delta_ota.h"
 
 static esp_ota_handle_t s_handle = 0;
 static bool s_active = false;
+static esp_delta_ota_handle_t s_delta = NULL;
 
 static const esp_partition_t *ota_get_target(void) {
     return esp_ota_get_next_update_partition(NULL);
@@ -174,6 +176,125 @@ static mp_obj_t ota_mark_invalid_reboot(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(ota_mark_invalid_reboot_obj, ota_mark_invalid_reboot);
 
+// ---- 差分 OTA（esp_delta_ota 组件，heatshrink 解压还原）----
+// 原理：read_cb 从当前运行分区读旧固件原始字节，write_cb 把还原出的
+// 新固件数据写入更新槽。patch 文件由 PC 端 esp_delta_ota_patch_gen.py 生成。
+
+// user_data 非 NULL 时库走 *_with_user_data 回调变体（避开 deprecated 成员，
+// 否则 -Werror=deprecated-declarations 会挂编译）
+static esp_err_t delta_read_cb(uint8_t *buf_p, size_t size, int src_offset, void *user_data) {
+    (void)user_data;
+    const esp_partition_t *run = esp_ota_get_running_partition();
+    return esp_partition_read(run, src_offset, buf_p, size);
+}
+
+static esp_err_t delta_write_cb(const uint8_t *buf_p, size_t size, void *user_data) {
+    (void)user_data;
+    return esp_ota_write(s_handle, buf_p, size);
+}
+
+// delta_begin(): 开更新槽 + 初始化差分还原器
+static mp_obj_t ota_delta_begin(void) {
+    if (s_active || s_delta != NULL) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("ota session already started"));
+    }
+    const esp_partition_t *upd = ota_get_target();
+    if (upd == NULL) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("no OTA update partition"));
+    }
+    esp_err_t err = esp_ota_begin(upd, OTA_SIZE_UNKNOWN, &s_handle);
+    if (err != ESP_OK) {
+        mp_raise_msg_varg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("esp_ota_begin failed: 0x%x"), err);
+    }
+    s_active = true;
+    esp_delta_ota_cfg_t cfg = {
+        .user_data = (void *)&s_handle,   // 仅要求非 NULL，回调里忽略
+        .read_cb_with_user_data = delta_read_cb,
+        .write_cb_with_user_data = delta_write_cb,
+    };
+    s_delta = esp_delta_ota_init(&cfg);
+    if (s_delta == NULL) {
+        esp_ota_abort(s_handle);
+        s_handle = 0;
+        s_active = false;
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("esp_delta_ota_init failed"));
+    }
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(ota_delta_begin_obj, ota_delta_begin);
+
+// delta_write(buf): 流式喂入差分包数据（任意分块）
+static mp_obj_t ota_delta_write(mp_obj_t buf_in) {
+    if (s_delta == NULL) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("delta session not started"));
+    }
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
+    if (bufinfo.len == 0) {
+        return mp_const_true;
+    }
+    esp_err_t err = esp_delta_ota_feed_patch(s_delta, bufinfo.buf, (int)bufinfo.len);
+    if (err != ESP_OK) {
+        mp_raise_msg_varg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("delta patch feed failed: 0x%x"), err);
+    }
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(ota_delta_write_obj, ota_delta_write);
+
+// delta_finish(): 还原完成 -> esp_ota_end 校验 + 切槽
+static mp_obj_t ota_delta_finish(void) {
+    if (s_delta == NULL) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("delta session not started"));
+    }
+    esp_err_t err = esp_delta_ota_finalize(s_delta);
+    esp_delta_ota_deinit(s_delta);
+    s_delta = NULL;
+    if (err != ESP_OK) {
+        if (s_active) {
+            esp_ota_abort(s_handle);
+            s_handle = 0;
+            s_active = false;
+        }
+        mp_raise_msg_varg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("delta finalize failed: 0x%x"), err);
+    }
+    err = esp_ota_end(s_handle);
+    s_handle = 0;
+    s_active = false;
+    if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("image validation failed (corrupt)"));
+    }
+    if (err != ESP_OK) {
+        mp_raise_msg_varg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("esp_ota_end failed: 0x%x"), err);
+    }
+    const esp_partition_t *upd = ota_get_target();
+    err = esp_ota_set_boot_partition(upd);
+    if (err != ESP_OK) {
+        mp_raise_msg_varg(&mp_type_RuntimeError,
+            MP_ERROR_TEXT("esp_ota_set_boot_partition failed: 0x%x"), err);
+    }
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(ota_delta_finish_obj, ota_delta_finish);
+
+// delta_abort(): 放弃差分升级，otadata 不动
+static mp_obj_t ota_delta_abort(void) {
+    if (s_delta != NULL) {
+        esp_delta_ota_deinit(s_delta);
+        s_delta = NULL;
+    }
+    if (s_active) {
+        esp_ota_abort(s_handle);
+        s_handle = 0;
+        s_active = false;
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(ota_delta_abort_obj, ota_delta_abort);
+
 static const mp_rom_map_elem_t ota_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_ota) },
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&ota_info_obj) },
@@ -183,6 +304,10 @@ static const mp_rom_map_elem_t ota_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_abort), MP_ROM_PTR(&ota_abort_obj) },
     { MP_ROM_QSTR(MP_QSTR_mark_valid), MP_ROM_PTR(&ota_mark_valid_obj) },
     { MP_ROM_QSTR(MP_QSTR_mark_invalid_reboot), MP_ROM_PTR(&ota_mark_invalid_reboot_obj) },
+    { MP_ROM_QSTR(MP_QSTR_delta_begin), MP_ROM_PTR(&ota_delta_begin_obj) },
+    { MP_ROM_QSTR(MP_QSTR_delta_write), MP_ROM_PTR(&ota_delta_write_obj) },
+    { MP_ROM_QSTR(MP_QSTR_delta_finish), MP_ROM_PTR(&ota_delta_finish_obj) },
+    { MP_ROM_QSTR(MP_QSTR_delta_abort), MP_ROM_PTR(&ota_delta_abort_obj) },
 };
 static MP_DEFINE_CONST_DICT(ota_module_globals, ota_module_globals_table);
 
