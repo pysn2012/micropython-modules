@@ -155,7 +155,7 @@ def handle_upload(conn, head, body):
     else:
         # 校验差分包 magic（小端 0xFCCDDE10），并准备跳过 64 字节文件头
         # （esp_delta_ota 组件不处理文件头，头部之后才是 detools 补丁数据）
-        if len(d) < 4 or d[0:4] != b"\x10\xdd\xcd\xfc":
+        if len(d) < 4 or d[0:4] != b"\x10\xde\xcd\xfc":
             print("[web-ota] delta magic mismatch, first bytes:", d[0:8])
             _send(conn, "400 Bad Request", "text/plain",
                   ("not an app image nor a delta patch (head=%s)" %
