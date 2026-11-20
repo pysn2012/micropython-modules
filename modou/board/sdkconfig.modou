@@ -1,4 +1,4 @@
-# Flower MoDou 专属配置（最后加载，覆盖前面的默认值）
+# Modou 专属配置（最后加载，覆盖前面的默认值）
 # 16MB Flash + 自定义双 OTA 乒乓分区表 + OTA 回滚保护
 
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
