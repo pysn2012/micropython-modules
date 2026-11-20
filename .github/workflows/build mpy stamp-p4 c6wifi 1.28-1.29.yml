@@ -31,12 +31,12 @@ jobs:
     steps:
       # 1. 检出当前仓库（含 stamp-p4/ 自定义板目录）
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # 2. 缓存 ESP-IDF 与 MicroPython（key 带 -stamp4v4：配置方式变更后强制刷新缓存）
       - name: Cache ESP-IDF and MicroPython
         id: cache_all
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ env.ESP_IDF_DIR }}
@@ -163,7 +163,7 @@ jobs:
 
       # 10. 上传构建产物
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mpy-stamp-p4-mpy${{ matrix.mpy_version }}
           path: ${{ env.ARTIFACTS_DIR }}/*

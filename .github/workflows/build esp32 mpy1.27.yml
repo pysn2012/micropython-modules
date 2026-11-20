@@ -48,12 +48,12 @@ jobs:
     steps:
       # 1. 检出当前仓库（其实没用）
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # 2. 缓存 ESP-IDF 与 MicroPython
       - name: Cache ESP-IDF and MicroPython
         id: cache_all
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ env.ESP_IDF_DIR }}
@@ -118,7 +118,7 @@ jobs:
 
       # 8. 上传构建产物
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mpy1.25-${{ matrix.board }}${{ matrix.variant && format('_{0}', matrix.variant) || '' }}_${{ matrix.flash_size }}MB
           path: ${{ env.ARTIFACTS_DIR }}/*.bin

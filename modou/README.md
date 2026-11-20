@@ -43,6 +43,19 @@ GitHub Actions 手动触发：`build mpy modou ota`（配方基于 `build mpy st
 
 ## 版本记录
 
+> 版本号在板上验证通过后才打标签；当前 = v0.1 已验证（编译通过），v0.2~v0.4 代码就绪待板测。
+
 - v0.1 工作流 + MODOU 板目录 + st7789/ota 模块注入，Actions 编译验证通过
 - v0.2/v0.3 代码就绪（待板上验证）：AW9106 驱动 + 屏幕点亮（test_screen.py）；
   ZL38063 DSP C 模块（dsp.init 固件下载启动）+ I2S 录放（audio_test.py）
+- v0.4 代码就绪（待板上验证）：boot.py（Wi-Fi + WebREPL + OTA 回滚自动确认）、
+  ota_web.py（网页升级）、ota_update.py（HTTP 拉取式升级）
+
+## 板测顺序（v0.2 → v0.4）
+
+1. 首烧 firmware.bin（0x1000）→ REPL 正常
+2. `import st7789, ota, dsp` → 三模块可导入
+3. test_screen.py → 屏显四色块 + RGB 灯亮
+4. audio_test.py → 录放出声
+5. boot.py（改 Wi-Fi 后上传）→ 重启 → WebREPL 可连
+6. ota_web.py 上传 micropython.bin → 重启 → `ota.info()` 状态 valid
