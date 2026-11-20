@@ -1,0 +1,9 @@
+﻿# 通用 ESP32_GENERIC_S3 8MB OTA（乒乓双槽）分区表（供 build mpy with st7789 1.29.yml 使用）
+# 布局：nvs(24KB) + otadata(8KB) + phy(4KB) + ota_0/ota_1(各2.875MB) + vfs FAT(~2.1MB)
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x6000,
+otadata,  data, ota,     0xf000,   0x2000,
+phy_init, data, phy,     0x11000,  0x1000,
+ota_0,    app,  ota_0,   0x20000,  0x2E0000,
+ota_1,    app,  ota_1,   0x300000, 0x2E0000,
+vfs,      data, fat,     0x5E0000, 0x220000,

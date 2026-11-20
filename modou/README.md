@@ -23,9 +23,12 @@ modou/                      # 魔豆小车板相关（本目录）
 ├── user_modules.cmake      # modou 构建聚合入口（公共 st7789/ota + dsp）
 ├── partitions-16mb-ota.csv # 双 OTA 乒乓槽 + FAT vfs 分区表（工作流复制到 ports/esp32/）
 └── py/                     # 设备端 Python
+    ├── boot.py             # 开机自启：Wi-Fi + WebREPL + OTA 回滚自动确认（拷到设备根目录）
     ├── aw9106.py           # AW9106 灯控/背光（必须在屏幕/DSP 初始化前调用 init）
     ├── test_screen.py      # 屏幕点亮测试（st7789 + 原厂初始化序列）
-    └── audio_test.py       # 音频录放测试（dsp.init + machine.I2S 48kHz 立体声）
+    ├── audio_test.py       # 音频录放测试（dsp.init + machine.I2S 48kHz 立体声）
+    ├── ota_web.py          # 网页 OTA 升级（浏览器上传 micropython.bin）
+    └── ota_update.py       # HTTP 拉取式 OTA 升级（REPL 运行）
 ```
 
 ## 构建方式
