@@ -4,6 +4,7 @@
 #   2. st7789 改用仓库根目录 vendor 的 modules/st7789（不再 clone russhughes）
 #   3. 增加 ota C 模块 + 双 OTA 槽分区表（按 flash 大小 8/16MB 选表）+ 回滚保护
 # 注意：改了本工作流配置时必须升级缓存 key 后缀（-st7789-ota-vN）
+name: build mpy with st7789 1.29
 
 on:
   workflow_dispatch:

@@ -43,7 +43,7 @@ jobs:
             ~/.espressif/
             ~/.cache/pip/
             ${{ env.MICROPYTHON_DIR }}
-          key: mpy-${{ env.MPY_VERSION }}-idf-${{ env.ESP_IDF_VERSION }}-modou-v1
+          key: mpy-${{ env.MPY_VERSION }}-idf-${{ env.ESP_IDF_VERSION }}-modou-v2
 
       # 3. 安装系统依赖（仅在缓存未命中时）
       - name: Install system dependencies
@@ -85,9 +85,11 @@ jobs:
           # 3) 固件版本号：IDF 从项目目录 version.txt 读取，commit 短哈希保证每版唯一
           printf 'v1.29.0-modou-%s' "${GITHUB_SHA:0:7}" \
             > ${{ env.MICROPYTHON_DIR }}/ports/esp32/version.txt
-          # 清除缓存的构建目录与 sdkconfig
+          # 清除缓存的构建目录、sdkconfig 与组件锁（防止旧版工作流的 managed_components 残留）
           rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/build-*
+          rm -rf ${{ env.MICROPYTHON_DIR }}/ports/esp32/managed_components
           rm -f  ${{ env.MICROPYTHON_DIR }}/ports/esp32/sdkconfig*
+          rm -f  ${{ env.MICROPYTHON_DIR }}/ports/esp32/dependencies.lock
           echo "---- 板目录核对 ----"
           ls ${{ env.MICROPYTHON_DIR }}/ports/esp32/boards/MODOU
 

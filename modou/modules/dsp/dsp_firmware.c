@@ -1,4 +1,4 @@
-#include "modou_dsp_firmware.h"
+#include "dsp_firmware.h"
 
 const size_t modou_dsp_fw_block_count = 3699;
 const uint32_t modou_dsp_fw_program_base = 0x00080200;
