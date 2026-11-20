@@ -36,15 +36,13 @@ esp32-camera/     # camera 驱动子模块（上游遗留）
 examples/ tests/ typings/ build.sh   # camera 相关示例/测试/类型标注/本地构建脚本
 ```
 
-## 魔豆小车（modou）快速烧录
+## 微信公众号
 
-首烧（经典 ESP32 引导偏移 0x1000）：
+业余时间搞硬件、写固件，相关的折腾笔记都发在公众号里，欢迎扫码关注交流：
 
-```
-esptool.py --chip esp32 --port COMx --baud 460800 write_flash -z 0x1000 mpy_1.29_MODOU_OTA_16MB_firmware.bin
-```
-
-OTA 升级用同目录 `micropython.bin`（纯 app image，不能首烧）。详见 `modou/README.md`。
+<p align="center">
+  <img src="pysnqr.jpg" width="220" alt="微信公众号二维码">
+</p>
 
 ## 致谢
 
