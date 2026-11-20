@@ -89,7 +89,7 @@ def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     if not wlan.isconnected():
-        print("Connecting to %s..." % SSID)
+        print("正在连接WiFi:%s..." % SSID)
         wlan.connect(SSID, PASSWORD)
         t = 20
         while not wlan.isconnected() and t > 0:
@@ -97,9 +97,9 @@ def connect_wifi():
             time.sleep(1)
             t -= 1
         if not wlan.isconnected():
-            raise RuntimeError("WiFi connect timeout")
+            raise RuntimeError("WiFi连接超时")
     print()
-    print("[web-ota] IP: http://%s/" % wlan.ifconfig()[0])
+    print("[web-ota] 设备IP:http://%s/" % wlan.ifconfig()[0])
     return wlan
 
 
@@ -116,10 +116,10 @@ def _read_head(conn):
     while b"\r\n\r\n" not in head:
         d = conn.recv(512)
         if not d:
-            raise OSError("peer closed before header")
+            raise OSError("对端提前断开")
         head += d
         if len(head) > 8192:
-            raise OSError("header too large")
+            raise OSError("请求头过大")
     h, body = head.split(b"\r\n\r\n", 1)
     return h, body
 
@@ -134,9 +134,9 @@ def handle_upload(conn, head, body):
         _send(conn, "400 Bad Request", "text/plain",
               b"bad payload size (need micropython.bin app image)")
         return
-    print("[web-ota] payload %d bytes" % length)
+    print("[web-ota] 收到数据:%d字节" % length)
     info = ota.info()
-    print("[web-ota] running=%s next=%s" % (info[0], info[1]))
+    print("[web-ota] 运行槽:%s 目标槽:%s" % (info[0], info[1]))
 
     # 类型嗅探：ESP app image 首字节固定 0xE9 = 整包（micropython.bin）；
     # 否则视为 esp_delta_ota 差分包（64字节头：magic 0xFCCDDE10 + 基准hash + 保留）
@@ -147,21 +147,21 @@ def handle_upload(conn, head, body):
         else:
             d = conn.recv(4096)
         if not d:
-            raise OSError("empty payload")
+            raise OSError("数据为空")
     is_image = d[0] == 0xE9
     if is_image:
-        print("[web-ota] full image")
+        print("[web-ota] 整包固件")
         ota.begin()
     else:
         # 校验差分包 magic（小端 0xFCCDDE10），并准备跳过 64 字节文件头
         # （esp_delta_ota 组件不处理文件头，头部之后才是 detools 补丁数据）
         if len(d) < 4 or d[0:4] != b"\x10\xde\xcd\xfc":
-            print("[web-ota] delta magic mismatch, first bytes:", d[0:8])
+            print("[web-ota] 差分包magic不符,前8字节:", d[0:8])
             _send(conn, "400 Bad Request", "text/plain",
                   ("not an app image nor a delta patch (head=%s)" %
                    d[0:8].hex()).encode())
             return
-        print("[web-ota] delta patch")
+        print("[web-ota] 差分补丁")
         ota.delta_begin()
     hdr_skip = 0 if is_image else 64
 
@@ -171,7 +171,7 @@ def handle_upload(conn, head, body):
             if not d:
                 d = conn.recv(4096)
             if not d:
-                raise OSError("short read at %d/%d" % (n, length))
+                raise OSError("读取不完整:%d/%d" % (n, length))
             take = min(len(d), length - n)
             chunk = d[:take]
             d = b""
@@ -197,11 +197,11 @@ def handle_upload(conn, head, body):
             ota.abort()
         else:
             ota.delta_abort()
-        print("[web-ota] FAILED: %s" % e)
+        print("[web-ota] 升级失败:%s" % e)
         _send(conn, "500 Internal Server Error", "text/plain",
               ("upgrade failed: %s\n(old firmware still running)" % e).encode())
         return
-    print("[web-ota] OK %d bytes, boot slot switched, rebooting..." % n)
+    print("[web-ota] 完成:%d字节,启动槽已切换,重启中..." % n)
     _send(conn, "200 OK", "text/plain",
           b"upgrade done (%d bytes). rebooting to new firmware..." % n)
     time.sleep(1)
@@ -213,20 +213,20 @@ def run():
     info = ota.info()
     # info[7]（镜像状态）仅回滚版固件（>= 8 项）才有，旧固件（7 项）按 undefined 处理
     state = info[7] if len(info) > 7 else "undefined"
-    print("[web-ota] running=%s version=%s build=%s %s state=%s" % (
+    print("[web-ota] 运行槽:%s 版本:%s 构建:%s %s 状态:%s" % (
         info[0], info[2], info[3], info[4], state))
     # 回滚保护确认：升级重启后的新固件处于 pending_verify，能联网说明固件基本可用，
     # 自动 mark_valid 解除回滚保护（否则此时复位会被 bootloader 回退到旧分区）。
     # 固件里待确认的分区状态：pending_verify -> valid
     if state == "pending_verify":
         ota.mark_valid()
-        print("[web-ota] new firmware confirmed (rollback cancelled)")
+        print("[web-ota] 新固件已确认固化(回滚保护解除)")
 
     s = socket.socket()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("0.0.0.0", PORT))
     s.listen(1)
-    print("[web-ota] server ready on port %d (Ctrl+C to stop)" % PORT)
+    print("[web-ota] HTTP服务已就绪,端口:%d (Ctrl+C停止)" % PORT)
 
     while True:
         conn, addr = s.accept()
@@ -253,7 +253,7 @@ def run():
             else:
                 _send(conn, "200 OK", "text/html", _HTML)
         except Exception as e:
-            print("[web-ota] request error: %s" % e)
+            print("[web-ota] 请求处理出错:%s" % e)
             import sys
             sys.print_exception(e)
             try:

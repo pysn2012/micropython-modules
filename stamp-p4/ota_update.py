@@ -45,14 +45,14 @@ def _http_get(host, path, port):
 
 def run(host, path, port=80):
     info = ota.info()
-    print("[ota] running=%s  next=%s" % (info[0], info[1]))
-    print("[ota] version=%s build=%s %s" % (info[2], info[3], info[4]))
+    print("[ota] 运行槽:%s  目标槽:%s" % (info[0], info[1]))
+    print("[ota] 版本:%s 构建:%s %s" % (info[2], info[3], info[4]))
 
     s, body, length = _http_get(host, path, port)
     if length is None:
         s.close()
-        raise OSError("server must return Content-Length")
-    print("[ota] payload total: %d bytes" % length)
+        raise OSError("服务器必须在响应头中返回Content-Length")
+    print("[ota] 数据总量:%d字节" % length)
 
     ota.begin()
     n = 0
@@ -70,14 +70,13 @@ def run(host, path, port=80):
                 print("[ota] %d/%d (%d%%)" % (n, length, n * 100 // length))
         s.close()
         if n != length:
-            raise OSError("short read: %d/%d" % (n, length))
+            raise OSError("读取不完整:%d/%d" % (n, length))
         ota.finish()
     except Exception:
         ota.abort()  # 失败放弃升级，otadata 不动，重启后仍跑旧固件
         raise
 
-    print("[ota] OK: payload %d bytes written, boot slot switched" % n)
-    print("[ota] reboot to run new firmware:")
-    print("      import machine; machine.reset()")
+    print("[ota] 完成:已写入%d字节,启动槽已切换" % n)
+    print("[ota] 重启运行新固件: import machine; machine.reset()")
     # 自检式重启（不需要的话注释掉下一行）
     machine.reset()
