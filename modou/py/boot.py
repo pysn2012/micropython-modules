@@ -37,7 +37,8 @@ def _ensure_webrepl_cfg():
         return
     except OSError:
         with open("webrepl_cfg.py", "w") as f:
-            f.write('PASSWD = "%s"\n' % WEBREPL_PASSWORD)
+            # MicroPython webrepl 模块只识别变量名 PASS（不是 PASSWD）
+            f.write('PASS = "%s"\n' % WEBREPL_PASSWORD)
         print("[boot] webrepl_cfg.py created (password=%s)" % WEBREPL_PASSWORD)
 
 
