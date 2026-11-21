@@ -45,6 +45,8 @@ def _ensure_webrepl_cfg():
 def _connect_wifi(timeout_s=20):
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
+    # 关闭 WiFi 省电（modem sleep），否则空闲后唤醒延迟会导致 WebREPL 握手超时
+    wlan.config(pm=0xA11140)
     if not wlan.isconnected():
         print("[boot] connecting WiFi: %s ..." % SSID)
         wlan.connect(SSID, PASSWORD)
