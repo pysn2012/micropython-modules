@@ -13,7 +13,7 @@
 #   - 48kHz/16bit/立体声，Philips 标准格式（参数来自 modou_audio_capture.c）
 
 import time
-from machine import Pin, I2C
+from machine import Pin, I2C, I2S
 
 import aw9106
 import dsp
