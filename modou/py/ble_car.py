@@ -62,7 +62,8 @@ class BLECar:
         ((self.tx, self.rx),) = self.ble.gatts_register_services(services)
 
     def advertise(self):
-        name = bytes(self.name, "UTF-8")
+        # MicroPython 编码名大小写敏感，"UTF-8" 会 LookupError；用默认 utf-8
+        name = self.name.encode()
         adv = bytearray(b"\x02\x01\x02") + bytearray((len(name) + 1, 0x09)) + name
         self.ble.gap_advertise(100, adv)
         print("[ble] advertising: %s" % self.name)
@@ -75,7 +76,7 @@ class BLECar:
             print("[ble] disconnected, advertising again")
             self.advertise()
         elif event == 3:  # 收到写入
-            BLE_MSG = self.ble.gatts_read(self.rx).decode("UTF-8").strip()
+            BLE_MSG = self.ble.gatts_read(self.rx).decode().strip()
 
 
 def handle(msg):
