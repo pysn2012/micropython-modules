@@ -14,6 +14,8 @@
 #   car_ctrl.backward(400, 50)       # 后退
 #   car_ctrl.spin_left(400, 50)      # 原地左转
 #   car_ctrl.spin_right(400, 50)     # 原地右转
+#   car_ctrl.stop()                  # 急停 + 灯光复位
+#   car_ctrl.front_light() / tail_light() / flash_light()   # 灯光效果
 #   car_ctrl.demo()                  # 全套演示
 
 import time
@@ -85,8 +87,38 @@ def spin_right(duration_ms=400, power=50):
     move(1, duration_ms, 170, power)
 
 
+# ---- 灯光 / 急停帧（逐字取自 Flower_modou car_remote_server.cc，实机验证格式）----
+
+_STOP_FRAMES = (
+    "AT+CMD=(1,2,3,2),(255,0,0,0,0),(0,0,0,0),(0,0,0,0),(0,0,0,0),(0,0,0,0)",
+    "AT+CMD=(1,3,3,3),(255,0,0,0,0),(0,0,0,0),(0,0,0,0),(0,0,0,0),(0,0,0,0)",
+)
+
+
+def stop():
+    """急停 + 灯光复位：连发两帧停止帧（帧间 18ms，与 Flower_modou 一致）。"""
+    for f in _STOP_FRAMES:
+        _send(f)
+        time.sleep_ms(18)
+
+
+def front_light():
+    """前灯效果（2s 循环）。"""
+    _send("AT+CMD=(4,1,0,1),(0,0,0,0,0),(7,0,2000,2),(7,0,2000,2),(0,0,0,0),(0,0,0,0)")
+
+
+def tail_light():
+    """尾灯效果（2s 循环）。"""
+    _send("AT+CMD=(4,1,0,1),(0,0,0,0,0),(0,0,0,0),(0,0,0,0),(7,1,2000,2),(7,1,2000,2)")
+
+
+def flash_light():
+    """前后灯交替闪烁（500ms）。"""
+    _send("AT+CMD=(12,1,3,1),(0,0,0,0,0),(7,0,500,1),(7,0,500,1),(7,1,500,1),(7,1,500,1)")
+
+
 def demo():
-    """完整演示：唤醒 -> 前进 -> 后退 -> 左转 -> 右转，帧间自然停止。"""
+    """完整演示：唤醒 -> 前进 -> 后退 -> 左转 -> 右转 -> 灯光闪烁。"""
     print("[car] wake base...")
     wake()
     time.sleep(1)
@@ -95,6 +127,9 @@ def demo():
         print("[car] %s" % name)
         fn()
         time.sleep(1.5)
+    print("[car] lights flash")
+    flash_light()
+    time.sleep(1.5)
     print("[car] demo done (最后一次运动帧 800ms 后自动停止)")
 
 
