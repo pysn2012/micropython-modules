@@ -85,3 +85,79 @@ if _wlan.isconnected():
     _confirm_ota_if_pending()
 webrepl.start()
 print("[boot] WebREPL started on ws://%s:8266" % _wlan.ifconfig()[0])
+
+# ==================== WebREPL 诊断块（定位问题后删除） ====================
+# 三路对照实验，全部自动化，证据打印到串口日志：
+#   8266: 给 webrepl 换上带打印的 accept 回调（stop 后重启，植入追踪）
+#   8267: 复刻 webrepl 机制的独立监听（option 20 回调，最简实现）
+#   8268: 线程版 accept 循环（对照：线程是否正常）
+#   20 秒后设备自连 127.0.0.1 对三个端口做自检，结果打印到串口
+import socket as _sock
+import _thread as _thr
+import time as _time
+
+_orig_accept = webrepl.accept_conn
+
+def _traced_accept(listen_s):
+    print("[diag] webrepl callback FIRED")
+    return _orig_accept(listen_s)
+
+webrepl.stop()
+webrepl.start(8266, None, _traced_accept)
+print("[diag] webrepl restarted with traced callback")
+
+def _diag_accept(listen_s):
+    print("[diag] 8267 callback FIRED")
+    cl, addr = listen_s.accept()
+    try:
+        cl.write(b"DIAG-OK\n")
+        print("[diag] 8267 replied to %s" % (addr,))
+    except Exception as e:
+        print("[diag] 8267 reply err: %r" % e)
+    cl.close()
+
+_ls = _sock.socket()
+_ls.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
+_ls.bind(("0.0.0.0", 8267))
+_ls.listen(1)
+_ls.setsockopt(_sock.SOL_SOCKET, 20, _diag_accept)
+print("[diag] 8267 listener ready")
+
+def _thread_server():
+    s = _sock.socket()
+    s.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
+    s.bind(("0.0.0.0", 8268))
+    s.listen(2)
+    while True:
+        c, a = s.accept()
+        try:
+            c.write(b"THREAD-OK\n")
+            print("[diag] 8268 served %s" % (a,))
+        except Exception as e:
+            print("[diag] 8268 err: %r" % e)
+        c.close()
+
+_thr.start_new_thread(_thread_server, ())
+print("[diag] 8268 thread server started")
+
+def _selftest():
+    _time.sleep(20)
+    for port, mark in ((8266, "webrepl"), (8267, "diag8267"), (8268, "thread")):
+        try:
+            c = _sock.socket()
+            c.settimeout(5)
+            c.connect(("127.0.0.1", port))
+            c.write(b"GET / HTTP/1.0\r\n\r\n")
+            try:
+                r = c.read(64)
+            except OSError as e:
+                r = "READ-ERR:" + str(e)
+            print("[diag] selftest %s(%d): recv=%r" % (mark, port, r))
+            c.close()
+        except Exception as e:
+            print("[diag] selftest %s(%d): %s: %s" % (mark, port, type(e).__name__, e))
+    print("[diag] selftest done")
+
+_thr.start_new_thread(_selftest, ())
+print("[diag] selftest scheduled (20s)")
+# ==================== 诊断块结束 ====================
