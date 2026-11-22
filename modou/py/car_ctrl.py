@@ -14,22 +14,23 @@
 #   car_ctrl.spin_left(400, 50)      # 原地左转
 #   car_ctrl.spin_right(400, 50)     # 原地右转
 
-import sys
 import time
+from machine import UART
 
-BAUD = 115200  # 控制台 UART0 默认波特率，无需重新初始化
+BAUD = 115200
+
+# 固件已关闭 UART REPL（MICROPY_HW_ENABLE_UART_REPL=0）：
+#   UART0 完全空闲、专供底座通信，这里独占初始化是安全的。
+#   旧固件保留 REPL 时重建 UART0 会与 REPL IRQ 冲突卡死主任务——那正是
+#   上午"WebREPL 全挂"的根因，关 REPL 后一并消失。
+_uart = UART(0, baudrate=BAUD, tx=1, rx=3)
 
 Zeros = "(0,0,0,0),(0,0,0,0),(0,0,0,0),(0,0,0,0)"
 
 
 def _send(cmd_text):
-    """发送一帧 {AT+...}\r\n。底座 AT 解析器只认这种帧。
-
-    注意：直接写系统控制台（stdout -> UART0 TX=GPIO1, 115200 8N1）。
-    不要用 machine.UART(0) 重建串口——UART0 是 REPL 保留串口，
-    重建会卡死主任务、kill 掉 socket 事件轮询链（WebREPL 全挂，板测实证）。
-    """
-    sys.stdout.write("{%s}\r\n" % cmd_text)
+    """发送一帧 {AT+...}\r\n。底座 AT 解析器只认这种帧。"""
+    _uart.write("{%s}\r\n" % cmd_text)
 
 
 def wake():
