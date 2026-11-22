@@ -154,6 +154,7 @@ def _apply(msg):
 def remote(name="MODOU"):
     """一键 BLE 遥控：唤醒底座 -> 起广播 -> 状态机 + 自动续帧。
     Ctrl-C 退出（自动急停）。"""
+    global BLE_MSG  # 循环里有 BLE_MSG="" 赋值，必须声明全局，否则被当局部变量
     car_ctrl.wake()
     ble = BLECar(name)
     print("[ble] remote ready: open mini-program, connect '%s'" % name)
