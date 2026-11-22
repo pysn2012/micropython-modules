@@ -6,13 +6,15 @@
 #     模式：3=前进 2=后退 0/1=原地转；转向 0..180（90=直行）；动力 1..100
 #     时长为 200ms 整数倍；运动帧有效期约 800ms，超时自动停
 #
-# 用法（串口 REPL 或 WebREPL 均可）：
+# 用法（WebREPL 或串口均可）：
 #   import car_ctrl
+#   car_ctrl.probe()                 # 探测：发 AT+Ver，打印底座应答（不动电机）
 #   car_ctrl.wake()                  # 唤醒底座（听见灯效/上电动作）
 #   car_ctrl.forward(800, 60)        # 前进 800ms 动力 60
 #   car_ctrl.backward(400, 50)       # 后退
 #   car_ctrl.spin_left(400, 50)      # 原地左转
 #   car_ctrl.spin_right(400, 50)     # 原地右转
+#   car_ctrl.demo()                  # 全套演示
 
 import time
 from machine import UART
@@ -23,7 +25,7 @@ BAUD = 115200
 #   UART0 完全空闲、专供底座通信，这里独占初始化是安全的。
 #   旧固件保留 REPL 时重建 UART0 会与 REPL IRQ 冲突卡死主任务——那正是
 #   上午"WebREPL 全挂"的根因，关 REPL 后一并消失。
-_uart = UART(0, baudrate=BAUD, tx=1, rx=3)
+_uart = UART(0, baudrate=BAUD, tx=1, rx=3, timeout=0)
 
 Zeros = "(0,0,0,0),(0,0,0,0),(0,0,0,0),(0,0,0,0)"
 
@@ -37,6 +39,26 @@ def wake():
     """唤醒底座供电域。首次发一次即可，运动帧不会重新锁电机。"""
     _send("AT+Pon")
     time.sleep_ms(300)
+
+
+def probe(timeout_ms=1200):
+    """链路探测（不动电机）：发 {AT+Ver} 询问帧，打印底座在 timeout 内
+    回的一切字节。有回话 = TX/RX 双向都通；无回话 = 底座没上电或没收到。
+    返回 bytes（空 = 无应答）。"""
+    _uart.read()  # 清掉缓冲里的旧数据
+    _send("AT+Ver")
+    buf = b""
+    t0 = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), t0) < timeout_ms:
+        r = _uart.read(128)
+        if r:
+            buf += r
+        time.sleep_ms(20)
+    if buf:
+        print("[car] base reply %d bytes: %r" % (len(buf), buf))
+    else:
+        print("[car] no reply within %dms" % timeout_ms)
+    return buf
 
 
 def move(mode, duration_ms, steer, power):
