@@ -19,8 +19,12 @@ import ota
 import machine
 
 # ====== 配置部分 ======
-SSID = "REDACTED_SSID"
-PASSWORD = "REDACTED"
+# WiFi 凭据放设备本地 wifi_cfg.py（不进 git 仓库，2026-11-22 约定）
+try:
+    from wifi_cfg import SSID, PASSWORD
+except ImportError:
+    print("[ota] wifi_cfg.py missing - copy wifi_cfg.example.py to device root")
+    SSID = PASSWORD = ""
 PORT = 80
 # 更新槽 2.875MB，留余量
 MAX_PAYLOAD = 2800000
