@@ -236,3 +236,5 @@ def run():
             except Exception:
                 pass
         conn.close()
+
+run()
