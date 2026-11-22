@@ -123,4 +123,22 @@ def start():
     _thread.start_new_thread(_server, ())
 
 
-print("[car] car_web loaded: browser open http://<modou-ip>/")
+def remote():
+    """一键遥控模式（推荐，底座连接时用）：
+       1) 起 80 端口网页服务
+       2) 主线程睡睡眠循环 —— REPL 停在 prompt 之外，不再回显底座广播
+          （原厂 C 固件 UART0 无 REPL、无回显，这一步是模拟原厂行为）
+       3) 手机/电脑浏览器开 http://192.168.31.195/ 遥控
+       按 Ctrl-C 退出、回到 REPL。
+    """
+    import sys
+    start()
+    print("[carweb] remote mode: open http://<modou-ip>/ ; Ctrl-C to exit")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n[carweb] remote mode exited")
+
+
+print("[car] car_web loaded: web remote = car_web.remote() ; plain server = car_web.start()")
