@@ -6,6 +6,7 @@
 #
 #   小程序扫描并连接设备名 "MODOU"：
 #     前进=upup  后退=down  左转=left  右转=right   （按住持续，松开停）
+#     前进自动亮前灯、后退自动亮尾灯（左/右转不联动），松开全关
 #     A=前灯长亮  B=尾灯长亮                          （按住长亮，松开发 stop 关灯）
 #     松开任何键小程序统一发 "stop"
 #   另兼容经典 5 字符帧 "!B<键号><1按/0松><校验和>"（其他小程序版本）：
@@ -122,6 +123,11 @@ def _apply(msg):
     if msg in MOTION_FN:
         STATE["motion"] = MOTION_FN[msg]
         STATE["motion"]()
+        # 方向联动灯光：前进亮前灯、后退亮尾灯（左转/右转不变）
+        if msg == "upup":
+            STATE["light"] = car_ctrl.front_light
+        elif msg == "down":
+            STATE["light"] = car_ctrl.tail_light
         return True
     if msg in LIGHT_FN:
         STATE["light"] = LIGHT_FN[msg]
