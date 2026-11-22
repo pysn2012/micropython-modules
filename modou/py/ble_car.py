@@ -80,11 +80,34 @@ class BLECar:
 
 
 def handle(msg):
-    """一条小程序消息 -> car_ctrl 调用。"""
+    """一条小程序消息 -> car_ctrl 调用。
+    小程序两套消息都收：文本别名（实机确认 2026-11-22：upup/stop）
+    和经典 5 字符帧（!B...，小程序另一模式/其他版本使用）。"""
+    # ---- 文本别名（当前小程序实际发送的）----
+    if msg == "upup":
+        car_ctrl.forward(400, 60)
+        return
+    if msg == "down":
+        car_ctrl.backward(400, 60)
+        return
+    if msg == "left":
+        car_ctrl.spin_left(400, 50)
+        return
+    if msg == "right":
+        car_ctrl.spin_right(400, 50)
+        return
+    if msg == "act1":
+        car_ctrl.front_light()
+        return
+    if msg == "bac2":
+        car_ctrl.tail_light()
+        return
     if msg == "stop":
         car_ctrl.stop()
         return
+    # ---- 经典 5 字符帧 ----
     if not (msg.startswith("!B") and len(msg) == 5):
+        print("[ble] unknown msg: %r" % msg)
         return
     # 校验和：5 个字符 ASCII 总和 = 255
     if sum(map(ord, msg)) != 255:
