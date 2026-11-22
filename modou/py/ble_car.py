@@ -34,10 +34,10 @@ UUID_SERVICE = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 UUID_RX = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"  # 小程序写 -> ESP32 收
 UUID_TX = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"  # ESP32 notify -> 小程序
 
-# 按住持续的指令 -> 刷新函数
+# 按住持续的指令 -> 刷新函数（灯组与运动同帧：前进带前灯、后退带尾灯）
 MOTION_FN = {
-    "upup": lambda: car_ctrl.forward(400, 60),
-    "down": lambda: car_ctrl.backward(400, 60),
+    "upup": lambda: car_ctrl.forward(400, 60, light="front"),
+    "down": lambda: car_ctrl.backward(400, 60, light="tail"),
     "left": lambda: car_ctrl.spin_left(400, 50),
     "right": lambda: car_ctrl.spin_right(400, 50),
 }
@@ -122,12 +122,7 @@ def _apply(msg):
         return True
     if msg in MOTION_FN:
         STATE["motion"] = MOTION_FN[msg]
-        STATE["motion"]()
-        # 方向联动灯光：前进亮前灯、后退亮尾灯（左转/右转不变）
-        if msg == "upup":
-            STATE["light"] = car_ctrl.front_light
-        elif msg == "down":
-            STATE["light"] = car_ctrl.tail_light
+        STATE["motion"]()  # 灯组已随运动帧携带，无需独立灯效帧
         return True
     if msg in LIGHT_FN:
         STATE["light"] = LIGHT_FN[msg]

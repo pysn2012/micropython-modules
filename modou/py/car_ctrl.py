@@ -2,11 +2,14 @@
 #
 # 协议来源：Flower_modou docs/MOTOR_REMOTE_PROTOCOL_2026-07-30.md（实机验证）
 #   唤醒：AT+Pon（每次开机首次发送，之后不用重发）
-#   运动：{AT+CMD=(9,1,0,1),(模式,时长ms,转向,动力,0),(0,0,0,0)x4}
+#   运动：{AT+CMD=(9,1,0,1),(模式,时长ms,转向,动力,0),灯组x4}
 #     模式码 2026-11-22 实车标定：0=前进 1=后退 2=左转 3=右转
 #     （Flower_modou 源码 remote_motion_code 的 3=前/2=后/0,1=转 与实车不符，勿再抄）
 #     转向 0..180：对前进/后退可能是弧线转弯参数（未标定，90=保守取值）
 #     时长为 200ms 整数倍；运动帧有效期约 800ms，超时自动停
+#   灯组（每帧必带 4 组，全零=每帧都在关灯）：第4参数=段数 1=常亮 2=闪烁，
+#     第3参数=时长 ms；行进灯光与运动同帧携带（22:09 板测：独立灯效帧会被
+#     后续运动帧覆盖）。关灯帧 = (7,色,60000,0) 0 段。
 #
 # 用法（WebREPL 或串口均可）：
 #   import car_ctrl
@@ -65,20 +68,29 @@ def probe(timeout_ms=1200):
     return buf
 
 
-def move(mode, duration_ms, steer, power):
-    """单帧运动。duration_ms 自动取 200ms 整数倍。"""
+def move(mode, duration_ms, steer, power, light=None):
+    """单帧运动。light=None 不带灯；"front"=前灯随行；"tail"=尾灯随行。
+    2026-11-22 板测定案：运动帧(9,..)的 4 个灯组槽每帧都会生效，全零灯组
+    等于每帧都在关灯——独立发的灯效帧 250ms 后就被运动帧覆盖，所以
+    行进灯光必须与运动同帧携带（灯组时长=运动时长，同步到期）。"""
     d = max(200, (int(duration_ms) // 200) * 200)
-    _send("AT+CMD=(9,1,0,1),(%d,%d,%d,%d,0),%s" % (mode, d, steer, power, Zeros))
+    if light == "front":
+        groups = "(7,0,%d,1),(7,0,%d,1),(0,0,0,0),(0,0,0,0)" % (d, d)
+    elif light == "tail":
+        groups = "(0,0,0,0),(0,0,0,0),(7,1,%d,1),(7,1,%d,1)" % (d, d)
+    else:
+        groups = "(0,0,0,0),(0,0,0,0),(0,0,0,0),(0,0,0,0)"
+    _send("AT+CMD=(9,1,0,1),(%d,%d,%d,%d,0),%s" % (mode, d, steer, power, groups))
 
 
-def forward(duration_ms=800, power=60):
-    """前进（模式 0，2026-11-22 实车标定）。"""
-    move(0, duration_ms, 90, power)
+def forward(duration_ms=800, power=60, light=None):
+    """前进（模式 0，2026-11-22 实车标定）。light="front" 前灯随行。"""
+    move(0, duration_ms, 90, power, light)
 
 
-def backward(duration_ms=800, power=60):
-    """后退（模式 1）。"""
-    move(1, duration_ms, 90, power)
+def backward(duration_ms=800, power=60, light=None):
+    """后退（模式 1）。light="tail" 尾灯随行。"""
+    move(1, duration_ms, 90, power, light)
 
 
 def spin_left(duration_ms=400, power=50):
@@ -129,12 +141,17 @@ def flash_light():
 
 
 def demo():
-    """完整演示：唤醒 -> 前进 -> 后退 -> 左转 -> 右转 -> 灯光闪烁。"""
+    """完整演示：唤醒 -> 前进(前灯) -> 后退(尾灯) -> 左转 -> 右转 -> 灯光闪烁。"""
     print("[car] wake base...")
     wake()
     time.sleep(1)
-    for name, fn in (("forward", forward), ("backward", backward),
-                     ("spin_left", spin_left), ("spin_right", spin_right)):
+    print("[car] forward (front light)")
+    forward(800, 60, light="front")
+    time.sleep(1.5)
+    print("[car] backward (tail light)")
+    backward(800, 60, light="tail")
+    time.sleep(1.5)
+    for name, fn in (("spin_left", spin_left), ("spin_right", spin_right)):
         print("[car] %s" % name)
         fn()
         time.sleep(1.5)
