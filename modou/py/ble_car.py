@@ -97,12 +97,13 @@ class BLECar:
         global BLE_MSG
         if event == 1:  # 手机连上
             print("[ble] connected")
-        elif event == 2:  # 手机断开 -> 急停 + 重新广播
+        elif event == 2:  # 手机断开 -> 急停 + 关灯 + 重新广播
             print("[ble] disconnected, emergency stop")
             STATE["motion"] = None
             STATE["light"] = None
             try:
                 car_ctrl.stop()
+                car_ctrl.lights_off()
             except Exception:
                 pass
             self.advertise()
@@ -116,6 +117,7 @@ def _apply(msg):
         STATE["motion"] = None
         STATE["light"] = None
         car_ctrl.stop()
+        car_ctrl.lights_off()  # 小程序松手统一发 stop：停车 + 关灯
         return True
     if msg in MOTION_FN:
         STATE["motion"] = MOTION_FN[msg]
@@ -133,10 +135,11 @@ def _apply(msg):
         if sum(map(ord, msg)) != 255:  # 校验和：ASCII 总和 = 255
             return False
         btn, state = msg[2], msg[3]
-        if state == "0":  # 松开 -> 停
+        if state == "0":  # 松开 -> 停车 + 关灯
             STATE["motion"] = None
             STATE["light"] = None
             car_ctrl.stop()
+            car_ctrl.lights_off()
             return True
         # 键号映射到文本别名，复用同一套状态机
         alias = {"5": "upup", "6": "down", "7": "left", "8": "right",
