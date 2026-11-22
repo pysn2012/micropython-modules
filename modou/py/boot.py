@@ -93,72 +93,94 @@ print("[boot] WebREPL started on ws://%s:8266" % _wlan.ifconfig()[0])
 #   8267: 复刻 webrepl 机制的独立监听（option 20 回调，最简实现）
 #   8268: 线程版 accept 循环（对照：线程是否正常）
 #   20 秒后设备自连 127.0.0.1 对三个端口做自检，结果打印到串口
+# 稳定性保证：整个诊断块套在 try/except 里，任何失败只打印、绝不影响启动
 import socket as _sock
 import _thread as _thr
 import time as _time
 
-_orig_accept = webrepl.accept_conn
 
-def _traced_accept(listen_s):
-    print("[diag] webrepl callback FIRED")
-    return _orig_accept(listen_s)
+def _run_diag():
+    _orig_accept = webrepl.accept_conn
 
-webrepl.stop()
-webrepl.start(8266, None, _traced_accept)
-print("[diag] webrepl restarted with traced callback")
+    def _traced_accept(listen_s):
+        print("[diag] webrepl callback FIRED")
+        return _orig_accept(listen_s)
 
-def _diag_accept(listen_s):
-    print("[diag] 8267 callback FIRED")
-    cl, addr = listen_s.accept()
     try:
-        cl.write(b"DIAG-OK\n")
-        print("[diag] 8267 replied to %s" % (addr,))
+        webrepl.stop()
+        webrepl.start(8266, None, _traced_accept)
+        print("[diag] webrepl restarted with traced callback")
     except Exception as e:
-        print("[diag] 8267 reply err: %r" % e)
-    cl.close()
+        print("[diag] webrepl restart FAILED: %r (沿用原 webrepl)" % e)
 
-_ls = _sock.socket()
-_ls.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
-_ls.bind(("0.0.0.0", 8267))
-_ls.listen(1)
-_ls.setsockopt(_sock.SOL_SOCKET, 20, _diag_accept)
-print("[diag] 8267 listener ready")
-
-def _thread_server():
-    s = _sock.socket()
-    s.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
-    s.bind(("0.0.0.0", 8268))
-    s.listen(2)
-    while True:
-        c, a = s.accept()
+    def _diag_accept(listen_s):
+        print("[diag] 8267 callback FIRED")
+        cl, addr = listen_s.accept()
         try:
-            c.write(b"THREAD-OK\n")
-            print("[diag] 8268 served %s" % (a,))
+            cl.write(b"DIAG-OK\n")
+            print("[diag] 8267 replied to %s" % (addr,))
         except Exception as e:
-            print("[diag] 8268 err: %r" % e)
-        c.close()
+            print("[diag] 8267 reply err: %r" % e)
+        _time.sleep_ms(100)  # 给对端留出读数据的时间，避免 RST
+        cl.close()
 
-_thr.start_new_thread(_thread_server, ())
-print("[diag] 8268 thread server started")
+    try:
+        _ls = _sock.socket()
+        _ls.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
+        _ls.bind(("0.0.0.0", 8267))
+        _ls.listen(1)
+        _ls.setsockopt(_sock.SOL_SOCKET, 20, _diag_accept)
+        print("[diag] 8267 listener ready")
+    except OSError as e:
+        print("[diag] 8267 bind SKIP: %r (上一次 boot 的 fd 泄漏，断电重启即清)" % e)
 
-def _selftest():
-    _time.sleep(20)
-    for port, mark in ((8266, "webrepl"), (8267, "diag8267"), (8268, "thread")):
+    def _thread_server():
+        s = _sock.socket()
+        s.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
         try:
-            c = _sock.socket()
-            c.settimeout(5)
-            c.connect(("127.0.0.1", port))
-            c.write(b"GET / HTTP/1.0\r\n\r\n")
+            s.bind(("0.0.0.0", 8268))
+            s.listen(2)
+        except OSError as e:
+            print("[diag] 8268 bind SKIP: %r" % e)
+            return
+        while True:
+            c, a = s.accept()
             try:
-                r = c.read(64)
-            except OSError as e:
-                r = "READ-ERR:" + str(e)
-            print("[diag] selftest %s(%d): recv=%r" % (mark, port, r))
+                c.write(b"THREAD-OK\n")
+                print("[diag] 8268 served %s" % (a,))
+            except Exception as e:
+                print("[diag] 8268 err: %r" % e)
+            _time.sleep_ms(100)
             c.close()
-        except Exception as e:
-            print("[diag] selftest %s(%d): %s: %s" % (mark, port, type(e).__name__, e))
-    print("[diag] selftest done")
 
-_thr.start_new_thread(_selftest, ())
-print("[diag] selftest scheduled (20s)")
+    _thr.start_new_thread(_thread_server, ())
+    print("[diag] 8268 thread server started")
+
+    def _selftest():
+        _time.sleep(20)
+        for port, mark in ((8266, "webrepl"), (8267, "diag8267"), (8268, "thread")):
+            try:
+                c = _sock.socket()
+                c.settimeout(5)
+                c.connect(("127.0.0.1", port))
+                c.write(b"GET / HTTP/1.0\r\n\r\n")
+                try:
+                    r = c.read(64)
+                except OSError as e:
+                    r = "READ-ERR:" + str(e)
+                print("[diag] selftest %s(%d): recv=%r" % (mark, port, r))
+                c.close()
+            except Exception as e:
+                print("[diag] selftest %s(%d): %s: %s" % (mark, port, type(e).__name__, e))
+        print("[diag] selftest done")
+
+    _thr.start_new_thread(_selftest, ())
+    print("[diag] selftest scheduled (20s)")
+
+
+try:
+    _run_diag()
+except Exception as e:
+    # 诊断块任何未预期异常都不允许影响启动
+    print("[diag] diag block aborted: %r (boot 继续)" % e)
 # ==================== 诊断块结束 ====================
