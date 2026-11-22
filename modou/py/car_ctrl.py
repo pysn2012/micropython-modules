@@ -3,7 +3,9 @@
 # 协议来源：Flower_modou docs/MOTOR_REMOTE_PROTOCOL_2026-07-30.md（实机验证）
 #   唤醒：AT+Pon（每次开机首次发送，之后不用重发）
 #   运动：{AT+CMD=(9,1,0,1),(模式,时长ms,转向,动力,0),(0,0,0,0)x4}
-#     模式：3=前进 2=后退 0/1=原地转；转向 0..180（90=直行）；动力 1..100
+#     模式码 2026-11-22 实车标定：0=前进 1=后退 2=左转 3=右转
+#     （Flower_modou 源码 remote_motion_code 的 3=前/2=后/0,1=转 与实车不符，勿再抄）
+#     转向 0..180：对前进/后退可能是弧线转弯参数（未标定，90=保守取值）
 #     时长为 200ms 整数倍；运动帧有效期约 800ms，超时自动停
 #
 # 用法（WebREPL 或串口均可）：
@@ -70,21 +72,23 @@ def move(mode, duration_ms, steer, power):
 
 
 def forward(duration_ms=800, power=60):
-    move(3, duration_ms, 90, power)
+    """前进（模式 0，2026-11-22 实车标定）。"""
+    move(0, duration_ms, 90, power)
 
 
 def backward(duration_ms=800, power=60):
-    move(2, duration_ms, 90, power)
+    """后退（模式 1）。"""
+    move(1, duration_ms, 90, power)
 
 
 def spin_left(duration_ms=400, power=50):
-    """原地左转（转向 <15）。"""
-    move(0, duration_ms, 10, power)
+    """左转（模式 2）。"""
+    move(2, duration_ms, 90, power)
 
 
 def spin_right(duration_ms=400, power=50):
-    """原地右转（转向 >165）。"""
-    move(1, duration_ms, 170, power)
+    """右转（模式 3）。"""
+    move(3, duration_ms, 90, power)
 
 
 # ---- 灯光 / 急停帧（逐字取自 Flower_modou car_remote_server.cc，实机验证格式）----
