@@ -1,16 +1,15 @@
 # Modou 设备端 boot.py（拷到设备根目录，开机自动运行）
 # ------------------------------------------------------------------
 # 流程：
-#   1. WebREPL 密码初始化（webrepl_cfg.py 不存在时自动生成，密码见下方配置）
-#   2. 连接 Wi-Fi（STA 模式，SSID/PASSWORD 见下方配置）
-#   3. 启动 WebREPL（Thonny/浏览器 ws://<IP>:8266 在线编程）
-#   4. 回滚保护自检：OTA 升级后的新固件处于 pending_verify，
-#      能连上 Wi-Fi 说明固件基本可用，自动 ota.mark_valid() 固化；
-#      若连不上 Wi-Fi 就不确认，手动复位会回退旧固件（回滚保护生效）
+#   1. WebREPL 密码初始化（webrepl_cfg.py 不存在时自动生成）
+#   2. 连接 Wi-Fi（STA 模式，关闭省电——见 _connect_wifi 注释）
+#   3. OTA 回滚保护自检（新固件联网成功即自动固化）
+#   4. 启动 WebREPL（浏览器/Thonny ws://<IP>:8266）
 #
-# 注意：
-#   - boot.py 里 SSID/PASSWORD 改成你自己的
-#   - WebREPL 密码建议修改（WebREPL_PASSWORD），长度 4~9 字符
+# 使用约定：
+#   - 控车：WebREPL 连上后手动 `import car_web; car_web.start()`
+#   - 不放 main.py：UART0 顶针接底座后被占用，boot 流程不依赖业务代码
+#   - 开机时不要插充电线（充电状态会阻塞 WiFi/WebREPL，2026-11-22 板测实证）
 # ------------------------------------------------------------------
 
 import network
@@ -31,22 +30,21 @@ WEBREPL_PASSWORD = "1234"
 
 
 def _ensure_webrepl_cfg():
-    """webrepl_cfg.py 不存在时自动生成（WebREPL 密码配置文件）。"""
+    """webrepl_cfg.py 不存在时自动生成（webrepl 模块只识别变量名 PASS）。"""
     try:
         os.stat("webrepl_cfg.py")
-        return
     except OSError:
         with open("webrepl_cfg.py", "w") as f:
-            # MicroPython webrepl 模块只识别变量名 PASS（不是 PASSWD）
             f.write('PASS = "%s"\n' % WEBREPL_PASSWORD)
-        print("[boot] webrepl_cfg.py created (password=%s)" % WEBREPL_PASSWORD)
+        print("[boot] webrepl_cfg.py created")
 
 
 def _connect_wifi(timeout_s=20):
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    # 关闭 WiFi 省电（modem sleep）：ESP32 端口 pm 取值 0/1/2（WIFI_PS_NONE/MIN/MAX），
-    # 不能用 ESP8266 的位掩码值（如 0xA11140，会报 Wifi Unknown Error 0x0102）
+    # 关闭 WiFi 省电：ESP32 端口 pm 取值 0/1/2（0=WIFI_PS_NONE）。
+    # 默认省电模式空闲后 modem sleep，WebREPL 会"TCP 握手成功但应用层无响应"。
+    # 注意不能用 ESP8266 的位掩码值（如 0xA11140，会报 Wifi Unknown Error 0x0102）。
     wlan.config(pm=0)
     if not wlan.isconnected():
         print("[boot] connecting WiFi: %s ..." % SSID)
@@ -74,9 +72,8 @@ def _confirm_ota_if_pending():
         print("[boot] ota: slot=%s version=%s state=%s" % (info[0], info[2], state))
         if state == "pending_verify":
             ota.mark_valid()
-            print("[boot] OTA firmware confirmed (rollback protection released)")
+            print("[boot] OTA firmware confirmed")
     except Exception as e:
-        # 首烧无 ota_0/ota_1 或模块异常时不阻塞启动
         print("[boot] ota check skipped: %s" % e)
 
 
@@ -85,102 +82,7 @@ _wlan = _connect_wifi()
 if _wlan.isconnected():
     _confirm_ota_if_pending()
 webrepl.start()
-print("[boot] WebREPL started on ws://%s:8266" % _wlan.ifconfig()[0])
-
-# ==================== WebREPL 诊断块（定位问题后删除） ====================
-# 三路对照实验，全部自动化，证据打印到串口日志：
-#   8266: 给 webrepl 换上带打印的 accept 回调（stop 后重启，植入追踪）
-#   8267: 复刻 webrepl 机制的独立监听（option 20 回调，最简实现）
-#   8268: 线程版 accept 循环（对照：线程是否正常）
-#   20 秒后设备自连 127.0.0.1 对三个端口做自检，结果打印到串口
-# 稳定性保证：整个诊断块套在 try/except 里，任何失败只打印、绝不影响启动
-import socket as _sock
-import _thread as _thr
-import time as _time
-
-
-def _run_diag():
-    _orig_accept = webrepl.accept_conn
-
-    def _traced_accept(listen_s):
-        print("[diag] webrepl callback FIRED")
-        return _orig_accept(listen_s)
-
-    try:
-        webrepl.stop()
-        webrepl.start(8266, None, _traced_accept)
-        print("[diag] webrepl restarted with traced callback")
-    except Exception as e:
-        print("[diag] webrepl restart FAILED: %r (沿用原 webrepl)" % e)
-
-    def _diag_accept(listen_s):
-        print("[diag] 8267 callback FIRED")
-        cl, addr = listen_s.accept()
-        try:
-            cl.write(b"DIAG-OK\n")
-            print("[diag] 8267 replied to %s" % (addr,))
-        except Exception as e:
-            print("[diag] 8267 reply err: %r" % e)
-        _time.sleep_ms(100)  # 给对端留出读数据的时间，避免 RST
-        cl.close()
-
-    try:
-        _ls = _sock.socket()
-        _ls.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
-        _ls.bind(("0.0.0.0", 8267))
-        _ls.listen(1)
-        _ls.setsockopt(_sock.SOL_SOCKET, 20, _diag_accept)
-        print("[diag] 8267 listener ready")
-    except OSError as e:
-        print("[diag] 8267 bind SKIP: %r (上一次 boot 的 fd 泄漏，断电重启即清)" % e)
-
-    def _thread_server():
-        s = _sock.socket()
-        s.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
-        try:
-            s.bind(("0.0.0.0", 8268))
-            s.listen(2)
-        except OSError as e:
-            print("[diag] 8268 bind SKIP: %r" % e)
-            return
-        while True:
-            c, a = s.accept()
-            try:
-                c.write(b"THREAD-OK\n")
-                print("[diag] 8268 served %s" % (a,))
-            except Exception as e:
-                print("[diag] 8268 err: %r" % e)
-            _time.sleep_ms(100)
-            c.close()
-
-    _thr.start_new_thread(_thread_server, ())
-    print("[diag] 8268 thread server started")
-
-    def _selftest():
-        _time.sleep(20)
-        for port, mark in ((8266, "webrepl"), (8267, "diag8267"), (8268, "thread")):
-            try:
-                c = _sock.socket()
-                c.settimeout(5)
-                c.connect(("127.0.0.1", port))
-                c.write(b"GET / HTTP/1.0\r\n\r\n")
-                try:
-                    r = c.read(64)
-                except OSError as e:
-                    r = "READ-ERR:" + str(e)
-                print("[diag] selftest %s(%d): recv=%r" % (mark, port, r))
-                c.close()
-            except Exception as e:
-                print("[diag] selftest %s(%d): %s: %s" % (mark, port, type(e).__name__, e))
-        print("[diag] selftest done")
-
-    _thr.start_new_thread(_selftest, ())
-    print("[diag] selftest scheduled (20s)")
-
-
-try:
-    _run_diag()
-except Exception as e:
-    # 诊断块任何未预期异常都不允许影响启动
-    print("[diag] diag block aborted: %r (boot 继续)" % e)
-# ==================== 诊断块结束 ====================
+if _wlan.isconnected():
+    print("[boot] ready: ws://%s:8266" % _wlan.ifconfig()[0])
+else:
+    print("[boot] ready (WiFi down, WebREPL listening anyway)")
