@@ -43,7 +43,7 @@ jobs:
             ~/.espressif/
             ~/.cache/pip/
             ${{ env.MICROPYTHON_DIR }}
-          key: mpy-${{ env.MPY_VERSION }}-idf-${{ env.ESP_IDF_VERSION }}-modou-v2
+          key: mpy-${{ env.MPY_VERSION }}-idf-${{ env.ESP_IDF_VERSION }}-modou-v3
 
       # 3. 安装系统依赖（仅在缓存未命中时）
       - name: Install system dependencies
