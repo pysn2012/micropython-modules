@@ -1,25 +1,25 @@
-# 魔豆 BLE 遥控（微信小程序端，Nordic UART 透传协议）
+# 魔豆 BLE 遥控（微信小程序端，按住持续动作/松开停止）
 #
 # 使用（WebREPL 连上后手动运行）：
 #   import ble_car
 #   ble_car.remote()
 #
 #   小程序扫描并连接设备名 "MODOU"：
-#     上键(B5) 按住=前进   下键(B6) 按住=后退
-#     左键(B7) 按住=左转   右键(B8) 按住=右转
-#     自定义键 1=前灯  2=尾灯  3=闪烁  4=重新唤醒底座
-#     松开方向键 = 急停 + 灯光复位（与网页版 stop 帧一致）
+#     前进=upup  后退=down  左转=left  右转=right   （按住持续，松开停）
+#     A=前灯长亮  B=尾灯长亮                          （按住持续，松开灭）
+#     松开任何键小程序统一发 "stop"
+#   另兼容经典 5 字符帧 "!B<键号><1按/0松><校验和>"（其他小程序版本）：
+#     B5/6/7/8=方向  B1=前灯 B2=尾灯 B3=闪烁 B4=唤醒
 #
-# 小程序协议（经典蓝牙遥控器 5 字符格式，2026-11-22 从参考脚本全样例验算）：
-#   "!B<键号><1按下/0松开><校验和>"，校验和字符使 5 字符 ASCII 总和 = 255
-#   例：!B516=按住上键（33+66+53+49+54=255），!B507=松开上键
-#   字面量 "stop" 同样处理为停车
+# 小程序协议（2026-11-22 板测实机确认）：
+#   - 文本指令：按住方向键连发（如 upup），松开统一发 stop
+#   - 5 字符帧校验和：使 5 字符 ASCII 总和 = 255（全样例验算）
 #
-# 说明：
-#   - BLE 与 WiFi/WebREPL 共存（ESP32 coexist），互不影响
-#   - 若小程序只在按住期间连发消息，运动帧 400ms + 800ms 有效期无缝衔接；
-#     若只发一次按下，车动作约 1 秒后由底座超时自动停
-#   - 松开发的是 car_ctrl.stop()（含灯光复位帧），灯效会被重置，属预期行为
+# 实现要点（按住持续的关键）：
+#   收到方向/灯指令只记状态，主循环自动续帧——运动帧 300ms 刷新
+#   （帧时效 400ms）、灯效帧 1.5s 刷新（帧循环 2s）。即使小程序只发
+#   一次按下消息，车也会一直走到收到 stop 或蓝牙断开为止。
+#   断连/退出均自动急停。
 
 import bluetooth
 import time
@@ -33,10 +33,35 @@ UUID_SERVICE = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 UUID_RX = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"  # 小程序写 -> ESP32 收
 UUID_TX = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"  # ESP32 notify -> 小程序
 
+# 按住持续的指令 -> 刷新函数
+MOTION_FN = {
+    "upup": lambda: car_ctrl.forward(400, 60),
+    "down": lambda: car_ctrl.backward(400, 60),
+    "left": lambda: car_ctrl.spin_left(400, 50),
+    "right": lambda: car_ctrl.spin_right(400, 50),
+}
+LIGHT_FN = {
+    "A": car_ctrl.front_light,
+    "B": car_ctrl.tail_light,
+    "a": car_ctrl.front_light,
+    "b": car_ctrl.tail_light,
+}
+# 单次型指令（发一次执行一次，不保持）
+ONESHOT_FN = {
+    "flash": car_ctrl.flash_light,
+    "act1": car_ctrl.front_light,
+    "bac2": car_ctrl.tail_light,
+}
+
+MOTION_REFRESH_MS = 300  # 运动帧 400ms 时效，300ms 刷新无缝衔接
+LIGHT_REFRESH_MS = 1500  # 灯效帧 2s 循环，1.5s 刷新保持长亮
+
+# 共享状态（ble_irq 断连时也要能清零急停）
+STATE = {"motion": None, "light": None}
+
 
 class BLECar:
-    """蓝牙外设：注册 NUS 服务、广播设备名、收小程序指令。
-    结构与已实机验证的参考实现（蓝牙小程序遥控.py）一致，仅去掉屏幕依赖。"""
+    """蓝牙外设：注册 NUS 服务、广播设备名、收小程序指令。"""
 
     def __init__(self, name="MODOU"):
         self.name = name
@@ -72,88 +97,90 @@ class BLECar:
         global BLE_MSG
         if event == 1:  # 手机连上
             print("[ble] connected")
-        elif event == 2:  # 手机断开 -> 重新广播
-            print("[ble] disconnected, advertising again")
+        elif event == 2:  # 手机断开 -> 急停 + 重新广播
+            print("[ble] disconnected, emergency stop")
+            STATE["motion"] = None
+            STATE["light"] = None
+            try:
+                car_ctrl.stop()
+            except Exception:
+                pass
             self.advertise()
         elif event == 3:  # 收到写入
             BLE_MSG = self.ble.gatts_read(self.rx).decode().strip()
 
 
-def handle(msg):
-    """一条小程序消息 -> car_ctrl 调用。
-    小程序两套消息都收：文本别名（实机确认 2026-11-22：upup/stop）
-    和经典 5 字符帧（!B...，小程序另一模式/其他版本使用）。"""
-    # ---- 文本别名（当前小程序实际发送的）----
-    if msg == "upup":
-        car_ctrl.forward(400, 60)
-        return
-    if msg == "down":
-        car_ctrl.backward(400, 60)
-        return
-    if msg == "left":
-        car_ctrl.spin_left(400, 50)
-        return
-    if msg == "right":
-        car_ctrl.spin_right(400, 50)
-        return
-    if msg == "act1":
-        car_ctrl.front_light()
-        return
-    if msg == "bac2":
-        car_ctrl.tail_light()
-        return
+def _apply(msg):
+    """处理一条消息。返回 True=已识别，False=未知。"""
     if msg == "stop":
+        STATE["motion"] = None
+        STATE["light"] = None
         car_ctrl.stop()
-        return
-    # ---- 经典 5 字符帧 ----
-    if not (msg.startswith("!B") and len(msg) == 5):
-        print("[ble] unknown msg: %r" % msg)
-        return
-    # 校验和：5 个字符 ASCII 总和 = 255
-    if sum(map(ord, msg)) != 255:
-        print("[ble] bad checksum: %r" % msg)
-        return
-    btn, state = msg[2], msg[3]
-    if state == "0":  # 松开任意键 -> 停车
-        car_ctrl.stop()
-        return
-    if btn == "5":
-        car_ctrl.forward(400, 60)
-    elif btn == "6":
-        car_ctrl.backward(400, 60)
-    elif btn == "7":
-        car_ctrl.spin_left(400, 50)
-    elif btn == "8":
-        car_ctrl.spin_right(400, 50)
-    elif btn == "1":
-        car_ctrl.front_light()
-    elif btn == "2":
-        car_ctrl.tail_light()
-    elif btn == "3":
-        car_ctrl.flash_light()
-    elif btn == "4":
-        car_ctrl.wake()
+        return True
+    if msg in MOTION_FN:
+        STATE["motion"] = MOTION_FN[msg]
+        STATE["motion"]()
+        return True
+    if msg in LIGHT_FN:
+        STATE["light"] = LIGHT_FN[msg]
+        STATE["light"]()
+        return True
+    if msg in ONESHOT_FN:
+        ONESHOT_FN[msg]()
+        return True
+    # ---- 经典 5 字符帧（其他小程序版本）----
+    if msg.startswith("!B") and len(msg) == 5:
+        if sum(map(ord, msg)) != 255:  # 校验和：ASCII 总和 = 255
+            return False
+        btn, state = msg[2], msg[3]
+        if state == "0":  # 松开 -> 停
+            STATE["motion"] = None
+            STATE["light"] = None
+            car_ctrl.stop()
+            return True
+        # 键号映射到文本别名，复用同一套状态机
+        alias = {"5": "upup", "6": "down", "7": "left", "8": "right",
+                 "1": "A", "2": "B"}
+        if btn == "3":
+            car_ctrl.flash_light()
+        elif btn == "4":
+            car_ctrl.wake()
+        elif btn in alias:
+            return _apply(alias[btn])
+        return True
+    return False
 
 
 def remote(name="MODOU"):
-    """一键 BLE 遥控：唤醒底座 -> 起广播 -> 循环处理小程序指令。
+    """一键 BLE 遥控：唤醒底座 -> 起广播 -> 状态机 + 自动续帧。
     Ctrl-C 退出（自动急停）。"""
     car_ctrl.wake()
     ble = BLECar(name)
     print("[ble] remote ready: open mini-program, connect '%s'" % name)
+    t_motion = 0
+    t_light = 0
     try:
         while True:
-            global BLE_MSG
             if BLE_MSG:
                 msg = BLE_MSG
                 BLE_MSG = ""
                 print("[ble] >>%s<<" % msg)
                 try:
-                    handle(msg)
+                    if not _apply(msg):
+                        print("[ble] unknown msg: %r" % msg)
                 except Exception as e:
                     print("[ble] handle err: %r" % e)
-            time.sleep_ms(100)
+            now = time.ticks_ms()
+            if STATE["motion"] and time.ticks_diff(now, t_motion) >= MOTION_REFRESH_MS:
+                STATE["motion"]()
+                t_motion = now
+            if STATE["light"] and time.ticks_diff(now, t_light) >= LIGHT_REFRESH_MS:
+                STATE["light"]()
+                t_light = now
+            time.sleep_ms(50)
     except KeyboardInterrupt:
+        STATE["motion"] = None
+        STATE["light"] = None
         car_ctrl.stop()
         print("\n[ble] remote exited (car stopped)")
 
