@@ -19,12 +19,9 @@ import ota
 import machine
 
 # ====== 配置部分 ======
-# WiFi 凭据放设备本地 wifi_cfg.py（不进 git 仓库，2026-11-22 约定）
-try:
-    from wifi_cfg import SSID, PASSWORD
-except ImportError:
-    print("[ota] wifi_cfg.py missing - copy wifi_cfg.example.py to device root")
-    SSID = PASSWORD = ""
+# WiFi 凭据不进 git 仓库：上传设备前把 XXX 改成真实值
+SSID = "XXX"        # <- 改成你的 WiFi 名
+PASSWORD = "XXX"    # <- 改成你的 WiFi 密码
 PORT = 80
 # 更新槽 2.875MB，留余量
 MAX_PAYLOAD = 2800000
