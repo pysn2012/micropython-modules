@@ -6,7 +6,7 @@
 #
 #   小程序扫描并连接设备名 "MODOU"：
 #     前进=upup  后退=down  左转=left  右转=right   （按住持续，松开停）
-#     A=前灯长亮  B=尾灯长亮                          （按住持续，松开灭）
+#     A=前灯长亮  B=尾灯长亮                          （按住长亮，松开发 stop 关灯）
 #     松开任何键小程序统一发 "stop"
 #   另兼容经典 5 字符帧 "!B<键号><1按/0松><校验和>"（其他小程序版本）：
 #     B5/6/7/8=方向  B1=前灯 B2=尾灯 B3=闪烁 B4=唤醒
@@ -54,7 +54,7 @@ ONESHOT_FN = {
 }
 
 MOTION_REFRESH_MS = 300  # 运动帧 400ms 时效，300ms 刷新无缝衔接
-LIGHT_REFRESH_MS = 1500  # 灯效帧 2s 循环，1.5s 刷新保持长亮
+LIGHT_REFRESH_MS = 50000  # 灯长亮帧时效 60s，50s 续期兜底
 
 # 共享状态（ble_irq 断连时也要能清零急停）
 STATE = {"motion": None, "light": None}

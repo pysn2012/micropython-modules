@@ -24,9 +24,16 @@ except ImportError:
     _HAS_OTA = False
 
 # ====== 配置部分 ======
-SSID = "REDACTED_SSID"
-PASSWORD = "REDACTED"
-WEBREPL_PASSWORD = "1234"
+# WiFi/WebREPL 凭据一律放设备本地 wifi_cfg.py（不进 git 仓库，2026-11-22 约定）：
+#   SSID = "你的WiFi名"
+#   PASSWORD = "你的WiFi密码"
+#   WEBREPL_PASSWORD = "webrepl密码"
+# 模板见 wifi_cfg.example.py；真身只存在于设备根目录和 modou11/ 本地备份。
+try:
+    from wifi_cfg import SSID, PASSWORD, WEBREPL_PASSWORD
+except ImportError:
+    print("[boot] wifi_cfg.py 缺失！请把 wifi_cfg.example.py 拷到设备根目录改名并填写")
+    SSID = PASSWORD = WEBREPL_PASSWORD = ""
 
 
 def _ensure_webrepl_cfg():
@@ -41,6 +48,9 @@ def _ensure_webrepl_cfg():
 
 def _connect_wifi(timeout_s=20):
     wlan = network.WLAN(network.STA_IF)
+    if not SSID:
+        print("[boot] wifi_cfg.py 未配置，跳过 WiFi（WebREPL 仍会启动）")
+        return wlan
     wlan.active(True)
     # 关闭 WiFi 省电：ESP32 端口 pm 取值 0/1/2（0=WIFI_PS_NONE）。
     # 默认省电模式空闲后 modem sleep，WebREPL 会"TCP 握手成功但应用层无响应"。
