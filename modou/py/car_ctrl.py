@@ -14,20 +14,22 @@
 #   car_ctrl.spin_left(400, 50)      # 原地左转
 #   car_ctrl.spin_right(400, 50)     # 原地右转
 
+import sys
 import time
-from machine import UART
 
-BAUD = 115200
-
-# UART0 与 REPL 共用，只写不读，避免和 dupterm 抢输入流
-_uart = UART(0, baudrate=BAUD, tx=1, rx=3)
+BAUD = 115200  # 控制台 UART0 默认波特率，无需重新初始化
 
 Zeros = "(0,0,0,0),(0,0,0,0),(0,0,0,0),(0,0,0,0)"
 
 
 def _send(cmd_text):
-    """发送一帧 {AT+...}\r\n。底座 AT 解析器只认这种帧。"""
-    _uart.write("{%s}\r\n" % cmd_text)
+    """发送一帧 {AT+...}\r\n。底座 AT 解析器只认这种帧。
+
+    注意：直接写系统控制台（stdout -> UART0 TX=GPIO1, 115200 8N1）。
+    不要用 machine.UART(0) 重建串口——UART0 是 REPL 保留串口，
+    重建会卡死主任务、kill 掉 socket 事件轮询链（WebREPL 全挂，板测实证）。
+    """
+    sys.stdout.write("{%s}\r\n" % cmd_text)
 
 
 def wake():
